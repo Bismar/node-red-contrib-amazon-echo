@@ -1,11 +1,11 @@
 <!-- nodes/amazon-echo-device.html -->
 <script type="text/javascript">
 (function () {
-  RED.nodes.registerType("amazon-echo-device", {
+  RED.nodes.registerType("amazon-echo-device-ha-entities", {
     category: "amazon",
     color: "#FFD580",
     icon: "bridge.svg",
-    paletteLabel: "amazon echo device",
+    paletteLabel: "amazon echo device (HA)",
     inputs: 1,
     outputs: 1,
     align: "right",
@@ -22,7 +22,7 @@
     },
 
     label: function () {
-      return this.name || this.haEntityId || "amazon-echo-device";
+      return this.name || this.haEntityId || "amazon-echo-device (HA)";
     },
 
     oneditprepare: function () {

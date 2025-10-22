@@ -1,4 +1,3 @@
-<!-- nodes/amazon-echo-hub.html -->
 <script type="text/html" data-template-name="amazon-echo-hub-ha-entities">
   <div class="form-row">
     <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
@@ -10,36 +9,46 @@
     <input type="number" id="node-input-port" min="1" max="65535" placeholder="80">
   </div>
 
-  <!-- Hidden: HA server config node (auto-picked in HA add-on) -->
-  <div class="form-row" id="ha-server-row" style="display:none">
+  <!-- Visible: make user pick the HA server config node explicitly -->
+  <div class="form-row" id="ha-server-row">
     <label for="node-input-haServer"><i class="fa fa-plug"></i> Home Assistant server</label>
     <input type="text" id="node-input-haServer">
   </div>
 
   <div class="form-row">
     <label for="node-input-processMode"><i class="fa fa-cogs"></i> Process input</label>
-    <select id="node-input-processMode" style="width: 100%">
-      <option value="enabled">Enabled</option>
+    <select id="node-input-processMode" style="width:100%">
       <option value="disabled">Disabled</option>
+      <option value="commands">Commands only</option>
+      <option value="discovery">Discovery only</option>
+      <option value="all">All</option>
     </select>
-    <span class="note">When enabled, incoming messages to this hub will be processed/forwarded.</span>
+    <span class="note">Choose which inbound messages the hub should act on.</span>
   </div>
 
+  <!-- Restored: Device Discovery checkbox -->
   <div class="form-row">
-    <label><i class="fa fa-search"></i> Discovery</label>
+    <label for="node-input-discoveryEnabled"><i class="fa fa-search"></i> Device discovery</label>
+    <input type="checkbox" id="node-input-discoveryEnabled" style="width:auto;vertical-align:middle;">
+    <span class="note">When enabled, the hub participates in device discovery/advertising.</span>
+  </div>
+
+  <!-- Optional: keep a manual trigger button if you like -->
+  <div class="form-row">
+    <label><i class="fa fa-bullseye"></i> Manual discovery</label>
     <button type="button" class="red-ui-button" id="nr-ha-echo-discover-btn">
-      <i class="fa fa-bullseye"></i> Run discovery now
+      <i class="fa fa-play"></i> Run discovery now
     </button>
-    <span class="note">Trigger device discovery for this hub instance.</span>
   </div>
 </script>
 
 <script type="text/html" data-help-name="amazon-echo-hub-ha-entities">
-  <p><b>Amazon Echo Hub (HA Entities)</b> — parallel hub node that can coexist with the original module.</p>
+  <p><b>Amazon Echo Hub (HA Entities)</b> — parallel hub node.</p>
   <ul>
-    <li><b>Port</b>: TCP port used by the hub.</li>
-    <li><b>Process input</b>: <i>Enabled</i> to handle incoming messages, <i>Disabled</i> to ignore/just pass through.</li>
-    <li><b>Run discovery now</b>: Click to execute an on-demand discovery cycle.</li>
+    <li><b>Home Assistant server</b> — select your HA websocket config node.</li>
+    <li><b>Process input</b> — Disabled / Commands only / Discovery only / All.</li>
+    <li><b>Device discovery</b> — enable/disable discovery participation (checkbox).</li>
+    <li><b>Manual discovery</b> — button to trigger discovery immediately.</li>
   </ul>
 </script>
 
@@ -54,52 +63,29 @@
     outputs: 1,
     paletteLabel: "amazon echo hub (HA)",
     defaults: {
-      name:         { value: "" },
-      port:         { value: 80, validate: v => !isNaN(v) && v >= 1 && v <= 65535 },
-      // hidden but stored; auto-picked in oneditprepare when running in HA add-on
-      haServer:     { value: "", type: "server", required: false },
-      // dropdown for process input (restored like original, but explicit)
-      processMode:  { value: "enabled" }  // "enabled" | "disabled"
+      name:               { value: "" },
+      port:               { value: 80, validate: v => !isNaN(v) && v >= 1 && v <= 65535 },
+      haServer:           { value: "", type: "server", required: true },
+      processMode:        { value: "all" },      // disabled | commands | discovery | all
+      discoveryEnabled:   { value: true }        // checkbox
     },
     label: function () {
       return this.name || "Amazon Echo Hub (HA)";
     },
     oneditprepare: function () {
-      const $server = $("#node-input-haServer");
-      const $btn = $("#nr-ha-echo-discover-btn");
-
-      // Auto-pick the first HA server config node if none set (typical in HA add-on)
-      (function autoPickServer(){
-        if ($server.val()) return;
-        const allConfigs = [];
-        if (RED.nodes.eachConfig) {
-          RED.nodes.eachConfig(function(n){ allConfigs.push(n); });
-        }
-        const servers = allConfigs.filter(n => n.type === "server");
-        if (servers.length >= 1) {
-          $server.val(servers[0].id);
-        }
-      })();
-
-      // Wire discovery button
       const nodeId = this.id;
+      const $btn = $("#nr-ha-echo-discover-btn");
       $btn.off("click").on("click", function(){
-        $btn.prop("disabled", true).text("Running discovery…");
+        $btn.prop("disabled", true).text("Running…");
         $.ajax({
           type: "POST",
           url: "amazon-echo-ha-entities/discover",
           data: JSON.stringify({ id: nodeId }),
           contentType: "application/json"
         })
-        .done(function(){
-          RED.notify("Discovery triggered.", "success", null, 1500);
-        })
-        .fail(function(xhr){
-          RED.notify("Failed to trigger discovery: " + (xhr.responseText || xhr.statusText), "error");
-        })
-        .always(function(){
-          $btn.prop("disabled", false).html('<i class="fa fa-bullseye"></i> Run discovery now');
-        });
+        .done(() => RED.notify("Discovery triggered.", "success", null, 1500))
+        .fail(xhr => RED.notify("Failed: " + (xhr.responseText || xhr.statusText), "error"))
+        .always(() => $btn.prop("disabled", false).html('<i class="fa fa-play"></i> Run discovery now'));
       });
     }
   });

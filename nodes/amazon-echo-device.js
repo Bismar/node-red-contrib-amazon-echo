@@ -1,3 +1,5 @@
+// nodes/amazon-echo-device.js
+// Amazon Echo Device (HA Entities) — Device/Entity dropdowns with HA server selection
 const WebSocket = require("ws");
 
 module.exports = function (RED) {
@@ -18,6 +20,7 @@ module.exports = function (RED) {
       try {
         const nodeDeviceId = node.deviceid || node.id;
         if (msg && msg.deviceid && msg.deviceid === nodeDeviceId) {
+          // Non-breaking: enrich payload with HA linkage
           if (typeof msg.payload !== "object" || msg.payload === null) {
             msg.payload = { value: msg.payload };
           }
@@ -50,12 +53,10 @@ module.exports = function (RED) {
         const haServer = RED.nodes.getNode(serverId);
         if (!haServer) return res.status(400).send("Home Assistant server config node not found");
 
-        const { baseUrl, token } = getHaUrlAndToken(haServer);
-        if (!baseUrl || !token) return res.status(400).send("HA URL/token missing on selected server");
+        const { wsUrl, token } = getHaUrlAndToken(haServer);
+        if (!wsUrl || !token) return res.status(400).send("HA URL/token missing on selected server");
 
-        const wsUrl = baseUrl.replace(/^http/i, "ws") + "/api/websocket";
         const devices = await wsCall(wsUrl, token, { type: "config/device_registry/list" });
-
         const out = (devices || []).map((d) => {
           const name = d.name_by_user || d.name || [d.manufacturer, d.model].filter(Boolean).join(" ") || d.id;
           return { id: d.id, name, displayName: name };
@@ -77,10 +78,9 @@ module.exports = function (RED) {
         const haServer = RED.nodes.getNode(serverId);
         if (!haServer) return res.status(400).send("Home Assistant server config node not found");
 
-        const { baseUrl, token } = getHaUrlAndToken(haServer);
-        if (!baseUrl || !token) return res.status(400).send("HA URL/token missing on selected server");
+        const { wsUrl, token } = getHaUrlAndToken(haServer);
+        if (!wsUrl || !token) return res.status(400).send("HA URL/token missing on selected server");
 
-        const wsUrl = baseUrl.replace(/^http/i, "ws") + "/api/websocket";
         const all = await wsCall(wsUrl, token, { type: "config/entity_registry/list" });
 
         const deviceId = req.query.device || "";
@@ -101,22 +101,40 @@ module.exports = function (RED) {
 
   // ---------- Helpers ----------
   function getHaUrlAndToken(haServer) {
+    if (!haServer) return { baseUrl: null, token: null, wsUrl: null };
+
+    // Try multiple known places; different versions store these differently
     const baseUrl =
       (typeof haServer.getUrl === "function" && haServer.getUrl()) ||
-      haServer.url ||
-      (haServer.config && haServer.config.url) ||
+      haServer?.url ||
+      haServer?.config?.url ||
+      haServer?.client?.websocketUrl ||
+      haServer?.client?.baseUrl ||
       null;
 
     const token =
-      (haServer.credentials && (haServer.credentials.access_token || haServer.credentials.token)) ||
+      haServer?.credentials?.access_token ||
+      haServer?.credentials?.token ||
+      haServer?.client?.auth?.access_token ||
+      haServer?.client?.token ||
+      haServer?.connection?.options?.access_token ||
       null;
 
-    return { baseUrl, token };
+    // Normalize to ws(s) + /api/websocket
+    let wsUrl = null;
+    if (baseUrl) {
+      wsUrl = String(baseUrl)
+        .replace(/^http:/i, "ws:")
+        .replace(/^https:/i, "wss:");
+      if (!/\/api\/websocket$/i.test(wsUrl)) {
+        wsUrl = wsUrl.replace(/\/+$/,"") + "/api/websocket";
+      }
+    }
+    return { baseUrl, token, wsUrl };
   }
 
   function wsCall(wsUrl, token, msg) {
     return new Promise((resolve, reject) => {
-      const WebSocket = require("ws");
       const ws = new WebSocket(wsUrl);
       let nextId = 1;
 

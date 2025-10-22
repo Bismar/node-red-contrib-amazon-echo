@@ -27,8 +27,8 @@
   "node-red": {
     "version": ">=3.0.0",
     "nodes": {
-      "amazon-echo-device": "nodes/amazon-echo-device.js",
-      "amazon-echo-hub": "nodes/amazon-echo-hub.js"
+      "amazon-echo-device-ha-entities": "nodes/amazon-echo-device.js",
+      "amazon-echo-hub-ha-entities": "nodes/amazon-echo-hub.js"
     }
   },
   "engines": {

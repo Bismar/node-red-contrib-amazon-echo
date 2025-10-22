@@ -1,3 +1,5 @@
+// nodes/amazon-echo-hub.js
+// Amazon Echo Hub (HA Entities) with 4-option process mode + discovery toggle
 module.exports = function (RED) {
   function AmazonEchoHubNode(config) {
     RED.nodes.createNode(this, config);
@@ -67,7 +69,7 @@ module.exports = function (RED) {
     async function startServer() {
       if (node._started) return;
       node.status({ fill: "yellow", shape: "ring", text: "starting…" });
-      // TODO: start UPnP/SSDP server here
+      // TODO: start UPnP/SSDP server here using node.port
       await sleep(300);
       node._started = true;
       node.log(`Amazon Echo Hub (HA) listening on port ${node.port}`);
@@ -114,6 +116,7 @@ module.exports = function (RED) {
 
   RED.nodes.registerType("amazon-echo-hub-ha-entities", AmazonEchoHubNode);
 
+  // Admin endpoint for manual discovery button
   RED.httpAdmin.post(
     "/amazon-echo-ha-entities/discover",
     RED.auth.needsPermission("flows.write"),

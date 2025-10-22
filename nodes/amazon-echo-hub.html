@@ -10,10 +10,19 @@
     <input type="number" id="node-input-port" min="1" max="65535" placeholder="80">
   </div>
 
+  <!-- Hidden: HA server config node (auto-picked in HA add-on) -->
+  <div class="form-row" id="ha-server-row" style="display:none">
+    <label for="node-input-haServer"><i class="fa fa-plug"></i> Home Assistant server</label>
+    <input type="text" id="node-input-haServer">
+  </div>
+
   <div class="form-row">
-    <label for="node-input-process"><i class="fa fa-cogs"></i> Process input</label>
-    <input type="checkbox" id="node-input-process" style="width:auto; vertical-align:middle;">
-    <span class="note">When enabled, messages received by this node will be processed/forwarded.</span>
+    <label for="node-input-processMode"><i class="fa fa-cogs"></i> Process input</label>
+    <select id="node-input-processMode" style="width: 100%">
+      <option value="enabled">Enabled</option>
+      <option value="disabled">Disabled</option>
+    </select>
+    <span class="note">When enabled, incoming messages to this hub will be processed/forwarded.</span>
   </div>
 
   <div class="form-row">
@@ -21,17 +30,16 @@
     <button type="button" class="red-ui-button" id="nr-ha-echo-discover-btn">
       <i class="fa fa-bullseye"></i> Run discovery now
     </button>
-    <span class="note">Triggers device discovery for this hub instance.</span>
+    <span class="note">Trigger device discovery for this hub instance.</span>
   </div>
 </script>
 
 <script type="text/html" data-help-name="amazon-echo-hub-ha-entities">
-  <p><b>Amazon Echo Hub (HA Entities)</b> — a renamed, parallel hub node that can live alongside the original
-     <code>node-red-contrib-amazon-echo</code> without conflicts.</p>
+  <p><b>Amazon Echo Hub (HA Entities)</b> — parallel hub node that can coexist with the original module.</p>
   <ul>
-    <li><b>Port</b>: TCP port used by the hub (match your deployment needs).</li>
-    <li><b>Process input</b>: If checked, incoming messages to this node will be processed/forwarded.</li>
-    <li><b>Run discovery now</b>: Click to run a discovery cycle immediately (useful during setup).</li>
+    <li><b>Port</b>: TCP port used by the hub.</li>
+    <li><b>Process input</b>: <i>Enabled</i> to handle incoming messages, <i>Disabled</i> to ignore/just pass through.</li>
+    <li><b>Run discovery now</b>: Click to execute an on-demand discovery cycle.</li>
   </ul>
 </script>
 
@@ -46,16 +54,35 @@
     outputs: 1,
     paletteLabel: "amazon echo hub (HA)",
     defaults: {
-      name:   { value: "" },
-      port:   { value: 80, validate: function(v){ return !isNaN(v) && v >= 1 && v <= 65535; } },
-      process:{ value: true } // mirror “Process input” behaviour from the original
+      name:         { value: "" },
+      port:         { value: 80, validate: v => !isNaN(v) && v >= 1 && v <= 65535 },
+      // hidden but stored; auto-picked in oneditprepare when running in HA add-on
+      haServer:     { value: "", type: "server", required: false },
+      // dropdown for process input (restored like original, but explicit)
+      processMode:  { value: "enabled" }  // "enabled" | "disabled"
     },
     label: function () {
       return this.name || "Amazon Echo Hub (HA)";
     },
     oneditprepare: function () {
-      const nodeId = this.id;
+      const $server = $("#node-input-haServer");
       const $btn = $("#nr-ha-echo-discover-btn");
+
+      // Auto-pick the first HA server config node if none set (typical in HA add-on)
+      (function autoPickServer(){
+        if ($server.val()) return;
+        const allConfigs = [];
+        if (RED.nodes.eachConfig) {
+          RED.nodes.eachConfig(function(n){ allConfigs.push(n); });
+        }
+        const servers = allConfigs.filter(n => n.type === "server");
+        if (servers.length >= 1) {
+          $server.val(servers[0].id);
+        }
+      })();
+
+      // Wire discovery button
+      const nodeId = this.id;
       $btn.off("click").on("click", function(){
         $btn.prop("disabled", true).text("Running discovery…");
         $.ajax({

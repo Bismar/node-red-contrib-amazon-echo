@@ -1,3 +1,4 @@
+<!-- nodes/amazon-echo-device.html -->
 <script type="text/html" data-template-name="amazon-echo-device-ha-entities">
   <div class="form-row">
     <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
@@ -19,14 +20,29 @@
     <label for="node-input-haEntityId"><i class="fa fa-dot-circle-o"></i> Entity Name</label>
     <select id="node-input-haEntityId" style="width:100%"></select>
   </div>
+
+  <!-- Live hint with the raw entity_id -->
+  <div class="form-tips" id="ha-entity-hint" style="margin-top:4px;"></div>
+
+  <!-- Modes & attributes preview -->
+  <div class="form-row" id="ha-entity-modes-row" style="display:none;">
+    <label><i class="fa fa-sliders"></i> Available modes</label>
+    <div id="ha-entity-modes" class="form-tips"></div>
+  </div>
+
+  <div class="form-row" id="ha-entity-attrs-row" style="display:none;">
+    <label><i class="fa fa-list"></i> Attributes</label>
+    <pre id="ha-entity-attrs" style="max-height:240px; overflow:auto; background:#f7f7f7; border:1px solid #ddd; padding:6px; border-radius:3px;"></pre>
+  </div>
 </script>
 
 <script type="text/html" data-help-name="amazon-echo-device-ha-entities">
-  <p>Link an Amazon Echo device with a Home Assistant Device & Entity.</p>
+  <p>Link an Amazon Echo device with a Home Assistant Device &amp; Entity.</p>
   <ul>
     <li><b>Home Assistant server</b> — select your HA websocket config node.</li>
     <li><b>Device Name</b> — optional filter; limits the Entity list.</li>
     <li><b>Entity Name</b> — required; the HA entity id to associate.</li>
+    <li>Below the selector, you’ll see the selected <code>entity_id</code>, detected modes (if any), and the full attributes JSON.</li>
   </ul>
 </script>
 
@@ -35,7 +51,7 @@
   RED.nodes.registerType("amazon-echo-device-ha-entities", {
     category: "amazon",
     color: "#FFD580",
-    icon: "amazon-echo-device.svg",
+    icon: "amazon-echo-device.svg",   // <-- use the original icon (add to your module's /icons)
     inputs: 1,
     outputs: 1,
     align: "right",
@@ -53,18 +69,77 @@
       const $server = $("#node-input-haServer");
       const $device = $("#node-input-haDeviceId");
       const $entity = $("#node-input-haEntityId");
+      const $hint   = $("#ha-entity-hint");
+      const $modesRow = $("#ha-entity-modes-row");
+      const $modes    = $("#ha-entity-modes");
+      const $attrsRow = $("#ha-entity-attrs-row");
+      const $attrs    = $("#ha-entity-attrs");
+
+      function setEntityHint() {
+        const eid = $entity.val() || "";
+        $hint.text(eid ? ("Selected entity_id: " + eid) : "");
+      }
+
+      function showEntityInfo(info) {
+        // info = { entity_id, state, attributes, detected_modes: {key: array} }
+        if (!info || !info.entity_id) {
+          $modesRow.hide(); $attrsRow.hide(); $modes.empty(); $attrs.text("");
+          return;
+        }
+        // Modes: render as pills
+        const dm = info.detected_modes || {};
+        const keys = Object.keys(dm).filter(k => Array.isArray(dm[k]) && dm[k].length);
+        if (keys.length) {
+          const frag = document.createDocumentFragment();
+          keys.forEach(k => {
+            const group = document.createElement("div");
+            group.style.marginBottom = "4px";
+            const title = document.createElement("div");
+            title.style.fontWeight = "600";
+            title.textContent = k;
+            group.appendChild(title);
+            dm[k].forEach(v => {
+              const pill = document.createElement("span");
+              pill.textContent = v;
+              pill.style.display = "inline-block";
+              pill.style.padding = "2px 6px";
+              pill.style.margin = "2px 6px 0 0";
+              pill.style.border = "1px solid #bbb";
+              pill.style.borderRadius = "999px";
+              pill.style.background = "#fff";
+              group.appendChild(pill);
+            });
+            frag.appendChild(group);
+          });
+          $modes.empty().append(frag);
+          $modesRow.show();
+        } else {
+          $modes.empty(); $modesRow.hide();
+        }
+
+        // Attributes: pretty JSON
+        if (info.attributes && typeof info.attributes === "object") {
+          try {
+            $attrs.text(JSON.stringify(info.attributes, null, 2));
+          } catch (e) {
+            $attrs.text(String(info.attributes));
+          }
+          $attrsRow.show();
+        } else {
+          $attrs.text(""); $attrsRow.hide();
+        }
+      }
 
       function reset() {
         $device.empty().append($("<option/>",{value:"",text:"(All devices)"})).prop("disabled", false);
         $entity.empty().append($("<option/>",{value:"",text:"Select entity..."})).prop("disabled", true);
+        setEntityHint();
+        showEntityInfo(null);
       }
       reset();
 
       function loadDevices(serverId, selectedDeviceId) {
-        if (!serverId) {
-          reset();
-          return;
-        }
+        if (!serverId) { reset(); return; }
         $device.prop("disabled", false).empty().append($("<option/>",{value:"",text:"(All devices)"}));
         $.getJSON("amazon-echo-ha-entities/devices", { server: serverId })
           .done(function (devices) {
@@ -94,10 +169,30 @@
             });
             if (selectedEntityId) $entity.val(selectedEntityId);
             $entity.prop("disabled", false);
+            setEntityHint();
+            if ($entity.val()) {
+              loadEntityInfo($server.val(), $entity.val());
+            } else {
+              showEntityInfo(null);
+            }
           })
           .fail(function (xhr) {
             $entity.empty().append($("<option/>",{value:"",text:"(failed to load)"}));
             RED.notify("Failed to load entities: " + (xhr.responseText || xhr.statusText), "error");
+            setEntityHint();
+            showEntityInfo(null);
+          });
+      }
+
+      function loadEntityInfo(serverId, entityId) {
+        if (!serverId || !entityId) { showEntityInfo(null); return; }
+        $.getJSON("amazon-echo-ha-entities/entity_info", { server: serverId, entity: entityId })
+          .done(function(info){
+            showEntityInfo(info);
+          })
+          .fail(function(xhr){
+            RED.notify("Failed to load entity details: " + (xhr.responseText || xhr.statusText), "error");
+            showEntityInfo(null);
           });
       }
 
@@ -109,9 +204,18 @@
         loadEntities($server.val(), $device.val(), $("#node-input-haEntityId").val());
       });
 
+      $entity.on("change", function(){
+        setEntityHint();
+        loadEntityInfo($server.val(), $entity.val());
+      });
+
+      // Initial populate (edit existing node)
       const initialServer = $server.val();
       if (initialServer) {
         loadDevices(initialServer, $("#node-input-haDeviceId").val());
+      } else {
+        setEntityHint();
+        showEntityInfo(null);
       }
     }
   });

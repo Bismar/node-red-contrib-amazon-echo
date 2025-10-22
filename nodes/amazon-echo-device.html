@@ -1,12 +1,11 @@
-<!-- nodes/amazon-echo-device.html -->
 <script type="text/html" data-template-name="amazon-echo-device-ha-entities">
   <div class="form-row">
     <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
     <input type="text" id="node-input-name" placeholder="Amazon Echo Device (HA)">
   </div>
 
-  <!-- Hidden: HA server config node (we auto-pick it) -->
-  <div class="form-row" id="ha-server-row" style="display:none">
+  <!-- Visible & required: HA server config node -->
+  <div class="form-row" id="ha-server-row">
     <label for="node-input-haServer"><i class="fa fa-plug"></i> Home Assistant server</label>
     <input type="text" id="node-input-haServer">
   </div>
@@ -23,10 +22,11 @@
 </script>
 
 <script type="text/html" data-help-name="amazon-echo-device-ha-entities">
-  <p>A renamed, parallel Amazon Echo device node that links a Home Assistant <b>Device</b> and <b>Entity</b>.</p>
+  <p>Link an Amazon Echo device with a Home Assistant Device & Entity.</p>
   <ul>
-    <li><b>Device Name</b> — optional; when selected, the Entity list is filtered to entities on that device.</li>
-    <li><b>Entity Name</b> — the entity to associate (e.g. <code>light.bedroom_lamp</code>).</li>
+    <li><b>Home Assistant server</b> — select your HA websocket config node.</li>
+    <li><b>Device Name</b> — optional filter; limits the Entity list.</li>
+    <li><b>Entity Name</b> — required; the HA entity id to associate.</li>
   </ul>
 </script>
 
@@ -42,8 +42,7 @@
     paletteLabel: "amazon echo device (HA)",
     defaults: {
       name:       { value: "" },
-      // we keep haServer but hide it; it lets us reuse HA auth from the HA websocket contrib
-      haServer:   { value: "", type: "server", required: false },
+      haServer:   { value: "", type: "server", required: true },
       haDeviceId: { value: "" },
       haEntityId: { value: "" }
     },
@@ -61,47 +60,35 @@
       }
       reset();
 
-      // Auto-select a HA server config node if none set (hidden field)
-      (function autoPickServer(){
-        if ($server.val()) return;
-        // try to find a single 'server' config node
-        const allConfigs = RED.nodes.eachConfig ? (function(){
-          const found = [];
-          RED.nodes.eachConfig(function(n){ found.push(n); });
-          return found;
-        })() : [];
-        const servers = allConfigs.filter(n => n.type === "server");
-        if (servers.length === 1) {
-          $server.val(servers[0].id);
+      function loadDevices(serverId, selectedDeviceId) {
+        if (!serverId) {
+          reset();
+          return;
         }
-      })();
-
-      function loadDevices(selectedDeviceId) {
-        $device.prop("disabled", false).empty();
-        $device.append($("<option/>",{value:"",text:"(All devices)"}));
-        $.getJSON("amazon-echo-ha-entities/devices")
+        $device.prop("disabled", false).empty().append($("<option/>",{value:"",text:"(All devices)"}));
+        $.getJSON("amazon-echo-ha-entities/devices", { server: serverId })
           .done(function (devices) {
             devices.forEach(function (d) {
-              // Use displayName for the UI but value is the unique device id
               $device.append($("<option/>", { value: d.id, text: d.displayName || d.name || d.id }));
             });
             if (selectedDeviceId) $device.val(selectedDeviceId);
             $device.trigger("change");
           })
           .fail(function (xhr) {
-            $device.empty().append($("<option/>",{value:"",text:"(failed to load devices)"}));
-            RED.notify("Failed to load Home Assistant devices: " + (xhr.responseText || xhr.statusText), "error");
+            reset();
+            RED.notify("Failed to load devices: " + (xhr.responseText || xhr.statusText), "error");
           });
       }
 
-      function loadEntities(deviceId, selectedEntityId) {
+      function loadEntities(serverId, deviceId, selectedEntityId) {
+        if (!serverId) return;
         $entity.prop("disabled", true).empty().append($("<option/>",{value:"",text:"Loading entities..."}));
-        const query = deviceId ? { device: deviceId } : {};
+        const query = { server: serverId };
+        if (deviceId) query.device = deviceId;
         $.getJSON("amazon-echo-ha-entities/entities", query)
           .done(function (entities) {
             $entity.empty().append($("<option/>",{value:"",text:"Select entity..."}));
             entities.forEach(function (e) {
-              // Show friendly name; fall back to entity_id
               const label = e.displayName || e.name || e.entity_id;
               $entity.append($("<option/>",{ value: e.entity_id, text: label }));
             });
@@ -114,14 +101,18 @@
           });
       }
 
-      // React to changes
-      $device.on("change", function(){
-        const devId = $device.val();
-        loadEntities(devId, $("#node-input-haEntityId").val());
+      $server.on("change", function(){
+        loadDevices($server.val(), $("#node-input-haDeviceId").val());
       });
 
-      // Initial populate (edit existing node)
-      loadDevices($("#node-input-haDeviceId").val());
+      $device.on("change", function(){
+        loadEntities($server.val(), $device.val(), $("#node-input-haEntityId").val());
+      });
+
+      const initialServer = $server.val();
+      if (initialServer) {
+        loadDevices(initialServer, $("#node-input-haDeviceId").val());
+      }
     }
   });
 })();

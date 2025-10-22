@@ -1,56 +1,128 @@
+<!-- nodes/amazon-echo-device.html -->
 <script type="text/html" data-template-name="amazon-echo-device-ha-entities">
   <div class="form-row">
-    <label for="node-input-name"><i class="icon-tag"></i> Name</label>
-    <input type="text" id="node-input-name" placeholder="Device Name">
+    <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+    <input type="text" id="node-input-name" placeholder="Amazon Echo Device (HA)">
+  </div>
+
+  <!-- Hidden: HA server config node (we auto-pick it) -->
+  <div class="form-row" id="ha-server-row" style="display:none">
+    <label for="node-input-haServer"><i class="fa fa-plug"></i> Home Assistant server</label>
+    <input type="text" id="node-input-haServer">
   </div>
 
   <div class="form-row">
-    <label for="node-input-topic"><i class="icon-envelope"></i> Topic</label>
-    <input type="text" id="node-input-topic" placeholder="Optional topic">
+    <label for="node-input-haDeviceId"><i class="fa fa-cubes"></i> Device Name</label>
+    <select id="node-input-haDeviceId" style="width:100%"></select>
   </div>
 
   <div class="form-row">
-    <label for="node-input-deviceType"><i class="icon-cog"></i> Device Type</label>
-    <input type="text" id="node-input-deviceType" placeholder="switch, light, etc.">
-  </div>
-
-  <div class="form-row">
-    <label for="node-input-haDeviceId"><i class="fa fa-home"></i> HA Device ID</label>
-    <input type="text" id="node-input-haDeviceId" placeholder="Home Assistant Device ID">
-  </div>
-
-  <div class="form-row">
-    <label for="node-input-haEntityId"><i class="fa fa-dot-circle-o"></i> HA Entity ID</label>
-    <input type="text" id="node-input-haEntityId" placeholder="light.living_room">
+    <label for="node-input-haEntityId"><i class="fa fa-dot-circle-o"></i> Entity Name</label>
+    <select id="node-input-haEntityId" style="width:100%"></select>
   </div>
 </script>
 
 <script type="text/html" data-help-name="amazon-echo-device-ha-entities">
-  <p>This node represents an Amazon Echo device linked to a Home Assistant entity.</p>
-  <p>
-    Use the <code>HA Device ID</code> and <code>HA Entity ID</code> fields to associate the Echo device with your
-    Home Assistant entities.
-  </p>
+  <p>A renamed, parallel Amazon Echo device node that links a Home Assistant <b>Device</b> and <b>Entity</b>.</p>
+  <ul>
+    <li><b>Device Name</b> — optional; when selected, the Entity list is filtered to entities on that device.</li>
+    <li><b>Entity Name</b> — the entity to associate (e.g. <code>light.bedroom_lamp</code>).</li>
+  </ul>
 </script>
 
 <script type="text/javascript">
-  (function () {
-    RED.nodes.registerType("amazon-echo-device-ha-entities", {
-      category: "input",
-      color: "#FFD580",
-      defaults: {
-        name: { value: "" },
-        topic: { value: "" },
-        deviceType: { value: "" },
-        haDeviceId: { value: "" },
-        haEntityId: { value: "" }
-      },
-      inputs: 1,
-      outputs: 1,
-      icon: "amazon-echo-device.svg",
-      label: function () {
-        return this.name || "Amazon Echo Device (HA)";
+(function () {
+  RED.nodes.registerType("amazon-echo-device-ha-entities", {
+    category: "amazon",
+    color: "#FFD580",
+    icon: "bridge.svg",
+    inputs: 1,
+    outputs: 1,
+    align: "right",
+    paletteLabel: "amazon echo device (HA)",
+    defaults: {
+      name:       { value: "" },
+      // we keep haServer but hide it; it lets us reuse HA auth from the HA websocket contrib
+      haServer:   { value: "", type: "server", required: false },
+      haDeviceId: { value: "" },
+      haEntityId: { value: "" }
+    },
+    label: function () {
+      return this.name || "Amazon Echo Device (HA)";
+    },
+    oneditprepare: function () {
+      const $server = $("#node-input-haServer");
+      const $device = $("#node-input-haDeviceId");
+      const $entity = $("#node-input-haEntityId");
+
+      function reset() {
+        $device.empty().append($("<option/>",{value:"",text:"(All devices)"})).prop("disabled", false);
+        $entity.empty().append($("<option/>",{value:"",text:"Select entity..."})).prop("disabled", true);
       }
-    });
-  })();
+      reset();
+
+      // Auto-select a HA server config node if none set (hidden field)
+      (function autoPickServer(){
+        if ($server.val()) return;
+        // try to find a single 'server' config node
+        const allConfigs = RED.nodes.eachConfig ? (function(){
+          const found = [];
+          RED.nodes.eachConfig(function(n){ found.push(n); });
+          return found;
+        })() : [];
+        const servers = allConfigs.filter(n => n.type === "server");
+        if (servers.length === 1) {
+          $server.val(servers[0].id);
+        }
+      })();
+
+      function loadDevices(selectedDeviceId) {
+        $device.prop("disabled", false).empty();
+        $device.append($("<option/>",{value:"",text:"(All devices)"}));
+        $.getJSON("amazon-echo-ha-entities/devices")
+          .done(function (devices) {
+            devices.forEach(function (d) {
+              // Use displayName for the UI but value is the unique device id
+              $device.append($("<option/>", { value: d.id, text: d.displayName || d.name || d.id }));
+            });
+            if (selectedDeviceId) $device.val(selectedDeviceId);
+            $device.trigger("change");
+          })
+          .fail(function (xhr) {
+            $device.empty().append($("<option/>",{value:"",text:"(failed to load devices)"}));
+            RED.notify("Failed to load Home Assistant devices: " + (xhr.responseText || xhr.statusText), "error");
+          });
+      }
+
+      function loadEntities(deviceId, selectedEntityId) {
+        $entity.prop("disabled", true).empty().append($("<option/>",{value:"",text:"Loading entities..."}));
+        const query = deviceId ? { device: deviceId } : {};
+        $.getJSON("amazon-echo-ha-entities/entities", query)
+          .done(function (entities) {
+            $entity.empty().append($("<option/>",{value:"",text:"Select entity..."}));
+            entities.forEach(function (e) {
+              // Show friendly name; fall back to entity_id
+              const label = e.displayName || e.name || e.entity_id;
+              $entity.append($("<option/>",{ value: e.entity_id, text: label }));
+            });
+            if (selectedEntityId) $entity.val(selectedEntityId);
+            $entity.prop("disabled", false);
+          })
+          .fail(function (xhr) {
+            $entity.empty().append($("<option/>",{value:"",text:"(failed to load)"}));
+            RED.notify("Failed to load entities: " + (xhr.responseText || xhr.statusText), "error");
+          });
+      }
+
+      // React to changes
+      $device.on("change", function(){
+        const devId = $device.val();
+        loadEntities(devId, $("#node-input-haEntityId").val());
+      });
+
+      // Initial populate (edit existing node)
+      loadDevices($("#node-input-haDeviceId").val());
+    }
+  });
+})();
 </script>

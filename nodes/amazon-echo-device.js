@@ -1,5 +1,5 @@
 // nodes/amazon-echo-device.js
-// Amazon Echo Device (HA Entities) — Device/Entity dropdowns with HA server selection
+// Amazon Echo Device (HA Entities) — Entity/Device dropdowns + modes/attributes preview
 const WebSocket = require("ws");
 
 module.exports = function (RED) {
@@ -42,8 +42,9 @@ module.exports = function (RED) {
 
   RED.nodes.registerType("amazon-echo-device-ha-entities", AmazonEchoDeviceNode);
 
-  // ---------- Admin endpoints for editor dropdowns ----------
-  // GET /amazon-echo-ha-entities/devices?server=<id>
+  // ---------- Admin endpoints for editor UI ----------
+
+  // List HA devices
   RED.httpAdmin.get(
     "/amazon-echo-ha-entities/devices",
     RED.auth.needsPermission("flows.read"),
@@ -67,7 +68,7 @@ module.exports = function (RED) {
     }
   );
 
-  // GET /amazon-echo-ha-entities/entities?server=<id>&device=<device_id?>
+  // List HA entities (optionally filtered by device id)
   RED.httpAdmin.get(
     "/amazon-echo-ha-entities/entities",
     RED.auth.needsPermission("flows.read"),
@@ -97,10 +98,40 @@ module.exports = function (RED) {
     }
   );
 
+  // Fetch current state + attributes + detected modes for one entity
+  RED.httpAdmin.get(
+    "/amazon-echo-ha-entities/entity_info",
+    RED.auth.needsPermission("flows.read"),
+    async (req, res) => {
+      try {
+        const haServer = resolveHaServer(RED, req.query.server);
+        const entityId = (req.query.entity || "").trim();
+        if (!haServer) return res.status(400).send("Home Assistant server config node not found");
+        if (!entityId) return res.status(400).send("Missing entity id");
+
+        const { wsUrl, token } = getHaUrlAndToken(RED, haServer, req.query.server);
+        if (!wsUrl || !token) return res.status(400).send("HA URL/token missing on selected server");
+
+        const states = await wsCall(wsUrl, token, { type: "get_states" });
+        const st = Array.isArray(states) ? states.find(s => s && s.entity_id === entityId) : null;
+
+        const attributes = (st && st.attributes) ? st.attributes : {};
+        const detected_modes = detectModes(attributes);
+
+        res.json({
+          entity_id: entityId,
+          state: st ? st.state : null,
+          attributes,
+          detected_modes
+        });
+      } catch (err) {
+        res.status(500).send(err.message || String(err));
+      }
+    }
+  );
+
   // ---------- Helpers ----------
 
-  // Prefer the server id passed from the UI; if missing/invalid or lacking creds,
-  // auto-pick the first HA server config that exposes a usable URL+token.
   function resolveHaServer(RED, serverId) {
     let s = null;
     if (serverId) {
@@ -120,9 +151,7 @@ module.exports = function (RED) {
     return null;
   }
 
-  // **Mirror HA add-on auth behavior**:
-  // - If add-on mode is on OR SUPERVISOR_TOKEN is set -> use ws://supervisor/core/websocket with SUPERVISOR_TOKEN
-  // - Else, use Base URL + Long-Lived Token from server config credentials
+  // Mirrors add-on behaviour: use Supervisor websocket if available; else LLAT + base URL
   function getHaUrlAndToken(RED, haServer, serverId) {
     if (!haServer) return { baseUrl: null, token: null, wsUrl: null };
 
@@ -133,16 +162,14 @@ module.exports = function (RED) {
       haServer?.useAddon === true;
 
     if (addonMode && process.env.SUPERVISOR_TOKEN) {
-      // Supervisor WebSocket proxy (official add-on path)
-      // Docs: use ws://supervisor/core/websocket and the SUPERVISOR_TOKEN as bearer. 1
       return {
-        baseUrl: "http://supervisor/core",    // informational
+        baseUrl: "http://supervisor/core",
         wsUrl: "ws://supervisor/core/websocket",
         token: process.env.SUPERVISOR_TOKEN
       };
     }
 
-    // ---- Non add-on (or no SUPERVISOR_TOKEN available): read URL + token from the server node ----
+    // Non add-on (or no supervisor token)
     const baseUrl =
       (typeof haServer.getUrl === "function" && haServer.getUrl()) ||
       haServer?.url ||
@@ -151,7 +178,6 @@ module.exports = function (RED) {
       haServer?.client?.baseUrl ||
       null;
 
-    // TOKEN: get from Node-RED credential store first
     const credsFromApi = serverId ? (RED.nodes.getCredentials(serverId) || null) : null;
     const instCreds    = haServer && haServer.credentials ? haServer.credentials : null;
 
@@ -175,6 +201,31 @@ module.exports = function (RED) {
       }
     }
     return { baseUrl, token, wsUrl };
+  }
+
+  function detectModes(attrs) {
+    const out = {};
+    if (!attrs || typeof attrs !== "object") return out;
+
+    // Common mode/list attributes across domains
+    const candidates = [
+      "hvac_modes", "preset_modes", "fan_modes", "swing_modes", "swing_mode_list",
+      "speed_list", "effect_list", "source_list", "input_source_list",
+      "supported_color_modes", "color_modes", "modes", "supported_features_list"
+    ];
+    candidates.forEach(k => {
+      const v = attrs[k];
+      if (Array.isArray(v) && v.length) out[k] = v;
+    });
+
+    // Also include any *custom* *_modes / *_list arrays
+    Object.keys(attrs).forEach(k => {
+      if ((/_modes$|_list$/i).test(k) && Array.isArray(attrs[k]) && attrs[k].length) {
+        if (!out[k]) out[k] = attrs[k];
+      }
+    });
+
+    return out;
   }
 
   function wsCall(wsUrl, token, msg) {

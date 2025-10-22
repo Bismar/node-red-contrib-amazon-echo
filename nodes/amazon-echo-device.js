@@ -1,6 +1,3 @@
-// nodes/amazon-echo-device.js
-// Amazon Echo Device (HA Entities) — exposes Device/Entity dropdowns (entity list filtered by device)
-
 const WebSocket = require("ws");
 
 module.exports = function (RED) {
@@ -9,14 +6,11 @@ module.exports = function (RED) {
     const node = this;
 
     node.name       = config.name || "";
-    node.haServer   = RED.nodes.getNode(config.haServer) || null; // hidden UI, auto-picked
-    node.haDeviceId = config.haDeviceId || ""; // device_id from HA device registry
-    node.haEntityId = config.haEntityId || ""; // entity_id from HA entity registry
+    node.haServer   = RED.nodes.getNode(config.haServer) || null; // required in HTML
+    node.haDeviceId = config.haDeviceId || "";
+    node.haEntityId = config.haEntityId || "";
+    node.deviceid   = node.deviceid || config.deviceid || null;
 
-    // (Optional) echo device's own id if your flow uses it
-    node.deviceid = node.deviceid || config.deviceid || null;
-
-    // Enhance matching payloads with HA linkage, non-breaking
     node.on("input", (msg, send, done) => {
       const _send = send || node.send.bind(node);
       const _done = done || function(){};
@@ -45,17 +39,19 @@ module.exports = function (RED) {
 
   RED.nodes.registerType("amazon-echo-device-ha-entities", AmazonEchoDeviceNode);
 
-  // ---------------------- Admin Endpoints (Editor) ----------------------
-  // These populate the dropdowns. They run only in the Editor and do not affect runtime.
-
-  // GET /amazon-echo-ha-entities/devices
+  // ---------- Admin endpoints for editor dropdowns ----------
   RED.httpAdmin.get(
     "/amazon-echo-ha-entities/devices",
     RED.auth.needsPermission("flows.read"),
     async (req, res) => {
       try {
-        const { baseUrl, token } = getHaAuthFromAnyServer(RED);
-        if (!baseUrl || !token) return res.status(400).send("Home Assistant server config node not found");
+        const serverId = req.query.server;
+        if (!serverId) return res.status(400).send("Missing server id");
+        const haServer = RED.nodes.getNode(serverId);
+        if (!haServer) return res.status(400).send("Home Assistant server config node not found");
+
+        const { baseUrl, token } = getHaUrlAndToken(haServer);
+        if (!baseUrl || !token) return res.status(400).send("HA URL/token missing on selected server");
 
         const wsUrl = baseUrl.replace(/^http/i, "ws") + "/api/websocket";
         const devices = await wsCall(wsUrl, token, { type: "config/device_registry/list" });
@@ -71,14 +67,18 @@ module.exports = function (RED) {
     }
   );
 
-  // GET /amazon-echo-ha-entities/entities?device=<device_id>
   RED.httpAdmin.get(
     "/amazon-echo-ha-entities/entities",
     RED.auth.needsPermission("flows.read"),
     async (req, res) => {
       try {
-        const { baseUrl, token } = getHaAuthFromAnyServer(RED);
-        if (!baseUrl || !token) return res.status(400).send("Home Assistant server config node not found");
+        const serverId = req.query.server;
+        if (!serverId) return res.status(400).send("Missing server id");
+        const haServer = RED.nodes.getNode(serverId);
+        if (!haServer) return res.status(400).send("Home Assistant server config node not found");
+
+        const { baseUrl, token } = getHaUrlAndToken(haServer);
+        if (!baseUrl || !token) return res.status(400).send("HA URL/token missing on selected server");
 
         const wsUrl = baseUrl.replace(/^http/i, "ws") + "/api/websocket";
         const all = await wsCall(wsUrl, token, { type: "config/entity_registry/list" });
@@ -99,28 +99,24 @@ module.exports = function (RED) {
     }
   );
 
-  // ---------------------- Helpers ----------------------
-
-  function getHaAuthFromAnyServer(RED) {
-    // Try to find any HA websocket "server" config node (from node-red-contrib-home-assistant-websocket)
-    const servers = [];
-    if (RED.nodes.eachConfig) {
-      RED.nodes.eachConfig((n) => { if (n.type === "server") servers.push(n); });
-    }
-    const haServer = servers[0] ? RED.nodes.getNode(servers[0].id) : null;
-
+  // ---------- Helpers ----------
+  function getHaUrlAndToken(haServer) {
     const baseUrl =
-      (haServer && typeof haServer.getUrl === "function" && haServer.getUrl()) ||
-      (haServer && (haServer.url || (haServer.config && haServer.config.url))) || null;
+      (typeof haServer.getUrl === "function" && haServer.getUrl()) ||
+      haServer.url ||
+      (haServer.config && haServer.config.url) ||
+      null;
 
     const token =
-      (haServer && haServer.credentials && (haServer.credentials.access_token || haServer.credentials.token)) || null;
+      (haServer.credentials && (haServer.credentials.access_token || haServer.credentials.token)) ||
+      null;
 
     return { baseUrl, token };
   }
 
   function wsCall(wsUrl, token, msg) {
     return new Promise((resolve, reject) => {
+      const WebSocket = require("ws");
       const ws = new WebSocket(wsUrl);
       let nextId = 1;
 

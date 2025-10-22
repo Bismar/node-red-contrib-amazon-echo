@@ -52,7 +52,7 @@ module.exports = function (RED) {
         const haServer = resolveHaServer(RED, req.query.server);
         if (!haServer) return res.status(400).send("Home Assistant server config node not found");
 
-        const { wsUrl, token } = getHaUrlAndToken(haServer);
+        const { wsUrl, token } = getHaUrlAndToken(RED, haServer, req.query.server);
         if (!wsUrl || !token) return res.status(400).send("HA URL/token missing on selected server");
 
         const devices = await wsCall(wsUrl, token, { type: "config/device_registry/list" });
@@ -76,7 +76,7 @@ module.exports = function (RED) {
         const haServer = resolveHaServer(RED, req.query.server);
         if (!haServer) return res.status(400).send("Home Assistant server config node not found");
 
-        const { wsUrl, token } = getHaUrlAndToken(haServer);
+        const { wsUrl, token } = getHaUrlAndToken(RED, haServer, req.query.server);
         if (!wsUrl || !token) return res.status(400).send("HA URL/token missing on selected server");
 
         const all = await wsCall(wsUrl, token, { type: "config/entity_registry/list" });
@@ -105,23 +105,25 @@ module.exports = function (RED) {
     let s = null;
     if (serverId) {
       s = RED.nodes.getNode(serverId) || null;
-      const { wsUrl, token } = getHaUrlAndToken(s);
+      const { wsUrl, token } = getHaUrlAndToken(RED, s, serverId);
       if (wsUrl && token) return s; // good to go
     }
     // fallback: scan all config nodes for type "server"
     const configs = [];
     if (RED.nodes.eachConfig) RED.nodes.eachConfig(n => configs.push(n));
-    const serverCfg = configs.find(n => n.type === "server");
-    if (!serverCfg) return null;
-    const candidate = RED.nodes.getNode(serverCfg.id);
-    const { wsUrl, token } = getHaUrlAndToken(candidate);
-    return (wsUrl && token) ? candidate : null;
+    const serverCfgs = configs.filter(n => n.type === "server");
+    for (const cfg of serverCfgs) {
+      const inst = RED.nodes.getNode(cfg.id);
+      const { wsUrl, token } = getHaUrlAndToken(RED, inst, cfg.id);
+      if (wsUrl && token) return inst;
+    }
+    return null;
   }
 
-  function getHaUrlAndToken(haServer) {
+  function getHaUrlAndToken(RED, haServer, serverId) {
     if (!haServer) return { baseUrl: null, token: null, wsUrl: null };
 
-    // Try multiple known places; different versions store these differently
+    // ---- URL candidates from instance (non-credential) ----
     const baseUrl =
       (typeof haServer.getUrl === "function" && haServer.getUrl()) ||
       haServer?.url ||
@@ -130,9 +132,15 @@ module.exports = function (RED) {
       haServer?.client?.baseUrl ||
       null;
 
+    // ---- TOKEN: must use credentials API for foreign config nodes ----
+    const credsFromApi = serverId ? (RED.nodes.getCredentials(serverId) || null) : null;
+    const instCreds    = haServer && haServer.credentials ? haServer.credentials : null; // sometimes available, often not
+
     const token =
-      haServer?.credentials?.access_token ||
-      haServer?.credentials?.token ||
+      credsFromApi?.access_token ||
+      credsFromApi?.token ||
+      instCreds?.access_token ||
+      instCreds?.token ||
       haServer?.client?.auth?.access_token ||
       haServer?.client?.token ||
       haServer?.connection?.options?.access_token ||
@@ -164,22 +172,22 @@ module.exports = function (RED) {
           if (hello.type !== "auth_required") return reject(new Error("Unexpected HA hello"));
           send({ type: "auth", access_token: token });
 
-        ws.once("message", (raw2) => {
-          let auth; try { auth = JSON.parse(raw2); } catch (e) { return reject(new Error("Invalid HA auth response")); }
-          if (auth.type !== "auth_ok") return reject(new Error("HA auth failed"));
+          ws.once("message", (raw2) => {
+            let auth; try { auth = JSON.parse(raw2); } catch (e) { return reject(new Error("Invalid HA auth response")); }
+            if (auth.type !== "auth_ok") return reject(new Error("HA auth failed"));
 
-          const id = nextId++;
-          send(Object.assign({ id }, msg));
+            const id = nextId++;
+            send(Object.assign({ id }, msg));
 
-          ws.on("message", (raw3) => {
-            let resp; try { resp = JSON.parse(raw3); } catch (e) { return; }
-            if (resp.id === id) {
-              ws.close();
-              if (resp.success === false) return reject(new Error((resp.error && resp.error.message) || "HA command failed"));
-              resolve(resp.result || []);
-            }
+            ws.on("message", (raw3) => {
+              let resp; try { resp = JSON.parse(raw3); } catch (e) { return; }
+              if (resp.id === id) {
+                ws.close();
+                if (resp.success === false) return reject(new Error((resp.error && resp.error.message) || "HA command failed"));
+                resolve(resp.result || []);
+              }
+            });
           });
-        });
         });
       });
       ws.on("error", reject);

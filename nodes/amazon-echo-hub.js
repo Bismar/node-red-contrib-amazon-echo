@@ -122,7 +122,7 @@ module.exports = function(RED) {
   }
 
   // NodeRED registration
-  RED.nodes.registerType('amazon-echo-hub', AmazonEchoHubNode, {});
+  RED.nodes.registerType("amazon-echo-hub", AmazonEchoHubNode, {});
 
   //
   // REST API

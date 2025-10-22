@@ -10,19 +10,15 @@
     outputs: 1,
     align: "right",
     defaults: {
-      // existing fields
       name:        { value: "" },
 
-      /* NEW: link to HA via the HA websocket "server" config node
+      /* Link to HA via the HA websocket "server" config node
          (provided by node-red-contrib-home-assistant-websocket) */
       haServer:    { value: "", type: "server", required: true },
 
-      /* NEW: selected HA device + entity (persisted in flow file) */
+      /* Persisted HA linkage */
       haDeviceId:  { value: "" },
-      haEntityId:  { value: "" },
-
-      /* keep any other original properties below if they existed, e.g.
-         deviceName, deviceType, etc. They are not shown here for brevity. */
+      haEntityId:  { value: "" }
     },
 
     label: function () {
@@ -48,7 +44,8 @@
           .done(function (devices) {
             $device.empty().append($("<option/>", { value: "", text: "Select device..." }));
             devices.forEach(function (d) {
-              $device.append($("<option/>", { value: d.id, text: d.name || d.id }));
+              // Show friendly device name
+              $device.append($("<option/>", { value: d.id, text: d.displayName || d.name || d.id }));
             });
             if (selectedDeviceId) $device.val(selectedDeviceId);
             $device.trigger("change");
@@ -69,8 +66,8 @@
           .done(function (entities) {
             $entity.empty().append($("<option/>", { value: "", text: "Select entity..." }));
             entities.forEach(function (e) {
-              const label = e.entity_id + (e.name ? (" — " + e.name) : "");
-              $entity.append($("<option/>", { value: e.entity_id, text: label }));
+              // Show friendly entity name
+              $entity.append($("<option/>", { value: e.entity_id, text: e.displayName || e.name || e.entity_id }));
             });
             if (selectedEntityId) $entity.val(selectedEntityId);
           })
@@ -126,8 +123,8 @@
 <script type="text/html" data-help-name="amazon-echo-device">
   <p>Exposes a device to Alexa. This version allows linking a Home Assistant device and entity from the editor.</p>
   <ul>
-    <li><b>Home Assistant server</b> – the HA websocket server config node (from <code>node-red-contrib-home-assistant-websocket</code>).</li>
-    <li><b>HA device</b> – a device from HA's device registry (saved as <code>haDeviceId</code>).</li>
-    <li><b>HA entity</b> – an entity filtered by the chosen device (saved as <code>haEntityId</code>).</li>
+    <li><b>Home Assistant server</b> – HA websocket server config node (from <code>node-red-contrib-home-assistant-websocket</code>).</li>
+    <li><b>HA device</b> – device list from HA (dropdown shows device <i>name</i>).</li>
+    <li><b>HA entity</b> – entity list filtered by device (dropdown shows entity <i>name</i>).</li>
   </ul>
 </script>

@@ -48,7 +48,7 @@ module.exports = function (RED) {
     node.on("close", (done) => done());
   }
 
-  RED.nodes.registerType("amazon-echo-device", AmazonEchoDeviceNode);
+  RED.nodes.registerType("amazon-echo-device-ha-entities", AmazonEchoDeviceNode);
 
   // ---------------------- Editor Admin Endpoints ----------------------
   // These power the dropdowns in the editor and run only in the editor context.

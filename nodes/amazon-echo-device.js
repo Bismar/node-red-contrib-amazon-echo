@@ -120,10 +120,29 @@ module.exports = function (RED) {
     return null;
   }
 
+  // **Mirror HA add-on auth behavior**:
+  // - If add-on mode is on OR SUPERVISOR_TOKEN is set -> use ws://supervisor/core/websocket with SUPERVISOR_TOKEN
+  // - Else, use Base URL + Long-Lived Token from server config credentials
   function getHaUrlAndToken(RED, haServer, serverId) {
     if (!haServer) return { baseUrl: null, token: null, wsUrl: null };
 
-    // ---- URL candidates from instance (non-credential) ----
+    const addonMode =
+      !!process.env.SUPERVISOR_TOKEN ||
+      haServer?.config?.addon === true ||
+      haServer?.addon === true ||
+      haServer?.useAddon === true;
+
+    if (addonMode && process.env.SUPERVISOR_TOKEN) {
+      // Supervisor WebSocket proxy (official add-on path)
+      // Docs: use ws://supervisor/core/websocket and the SUPERVISOR_TOKEN as bearer. 1
+      return {
+        baseUrl: "http://supervisor/core",    // informational
+        wsUrl: "ws://supervisor/core/websocket",
+        token: process.env.SUPERVISOR_TOKEN
+      };
+    }
+
+    // ---- Non add-on (or no SUPERVISOR_TOKEN available): read URL + token from the server node ----
     const baseUrl =
       (typeof haServer.getUrl === "function" && haServer.getUrl()) ||
       haServer?.url ||
@@ -132,9 +151,9 @@ module.exports = function (RED) {
       haServer?.client?.baseUrl ||
       null;
 
-    // ---- TOKEN: must use credentials API for foreign config nodes ----
+    // TOKEN: get from Node-RED credential store first
     const credsFromApi = serverId ? (RED.nodes.getCredentials(serverId) || null) : null;
-    const instCreds    = haServer && haServer.credentials ? haServer.credentials : null; // sometimes available, often not
+    const instCreds    = haServer && haServer.credentials ? haServer.credentials : null;
 
     const token =
       credsFromApi?.access_token ||
@@ -146,7 +165,6 @@ module.exports = function (RED) {
       haServer?.connection?.options?.access_token ||
       null;
 
-    // Normalize to ws(s) + /api/websocket
     let wsUrl = null;
     if (baseUrl) {
       wsUrl = String(baseUrl)

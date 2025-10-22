@@ -1,34 +1,41 @@
-// nodes/amazon-echo-hub.js
-// Amazon Echo Hub (HA Entities) with restored "Process input" dropdown + discovery button
-// Auto-detects Home Assistant server config when running as HA add-on.
-
 module.exports = function (RED) {
   function AmazonEchoHubNode(config) {
     RED.nodes.createNode(this, config);
     const node = this;
 
-    node.name        = config.name || "";
-    node.port        = Number(config.port || 80);
-    node.processMode = config.processMode === "disabled" ? "disabled" : "enabled";
-    node.haServer    = RED.nodes.getNode(config.haServer) || autoPickHaServer(RED); // auto-pick in HA add-on
+    node.name             = config.name || "";
+    node.port             = Number(config.port || 80);
+    node.processMode      = ["disabled","commands","discovery","all"].includes(config.processMode) ? config.processMode : "all";
+    node.discoveryEnabled = (config.discoveryEnabled !== false);
+    node.haServer         = RED.nodes.getNode(config.haServer) || null;  // required in HTML
 
-    // internal state
     node._server  = null;
     node._started = false;
 
     startServer().catch(err => node.error("Hub start error: " + err.message));
 
-    // Mirror original "Process input" behaviour via dropdown
     node.on("input", (msg, send, done) => {
       const _send = send || node.send.bind(node);
       const _done = done || function(){};
 
       try {
-        if (node.processMode === "enabled") {
-          // Insert your actual hub processing/forwarding here
+        const isCmd  = isCommandMsg(msg);
+        const isDisc = isDiscoveryMsg(msg);
+
+        let act = false;
+        switch (node.processMode) {
+          case "disabled":  act = false; break;
+          case "commands":  act = isCmd; break;
+          case "discovery": act = isDisc; break;
+          case "all":       act = (isCmd || isDisc); break;
+        }
+
+        if (act) {
+          if (isDisc && node.discoveryEnabled) {
+            node.doDiscovery().catch(e => node.error("Discovery failed: " + e.message));
+          }
           _send(msg);
         } else {
-          // Disabled: either ignore or still pass through; keeping pass-through for safety
           _send(msg);
         }
         _done();
@@ -38,15 +45,16 @@ module.exports = function (RED) {
       }
     });
 
-    node.on("close", (done) => {
-      stopServer().finally(() => done());
-    });
+    node.on("close", (done) => { stopServer().finally(() => done()); });
 
-    // Editor button triggers this via admin endpoint
     node.doDiscovery = async function() {
+      if (!node.discoveryEnabled) {
+        node.warn("Discovery requested but device discovery is disabled.");
+        return;
+      }
       node.status({ fill: "blue", shape: "dot", text: "discovering…" });
       try {
-        // TODO: Replace with actual discovery logic from the original project
+        // TODO: real discovery routine here
         await sleep(1200);
         node.log("Amazon Echo Hub (HA) discovery cycle completed.");
         node.status({ fill: "green", shape: "dot", text: "ready" });
@@ -56,14 +64,11 @@ module.exports = function (RED) {
       }
     };
 
-    // ---------- helpers ----------
     async function startServer() {
       if (node._started) return;
       node.status({ fill: "yellow", shape: "ring", text: "starting…" });
-
-      // TODO: start UPnP/SSDP server, advertise, etc., using node.port
-      await sleep(300); // placeholder
-
+      // TODO: start UPnP/SSDP server here
+      await sleep(300);
       node._started = true;
       node.log(`Amazon Echo Hub (HA) listening on port ${node.port}`);
       node.status({ fill: "green", shape: "dot", text: "ready" });
@@ -72,7 +77,7 @@ module.exports = function (RED) {
     async function stopServer() {
       node.status({ fill: "grey", shape: "ring", text: "stopping…" });
       try {
-        // TODO: close listeners/sockets/timers etc.
+        // TODO: shutdown sockets/listeners
         await sleep(100);
       } finally {
         node._server = null;
@@ -81,12 +86,34 @@ module.exports = function (RED) {
       }
     }
 
+    function isCommandMsg(msg) {
+      const p = msg && msg.payload;
+      if (p == null) return false;
+      if (typeof p === "string") {
+        const s = p.toLowerCase();
+        return s === "on" || s === "off" || s === "toggle" || /^bri[ghtness]?[:\s]\d+/.test(s);
+      }
+      if (typeof p === "number") return true;
+      if (typeof p === "object") {
+        if ("on" in p || "off" in p || "state" in p || "brightness" in p || "level" in p) return true;
+      }
+      return false;
+    }
+
+    function isDiscoveryMsg(msg) {
+      const p = msg && msg.payload;
+      const t = msg && msg.topic;
+      if (t && /discover|discovery/i.test(String(t))) return true;
+      if (typeof p === "string" && /^(discover|discovery)$/i.test(p)) return true;
+      if (typeof p === "object" && p && (p.discover === true || p.discovery === true)) return true;
+      return false;
+    }
+
     function sleep(ms){ return new Promise(r => setTimeout(r, ms)); }
   }
 
   RED.nodes.registerType("amazon-echo-hub-ha-entities", AmazonEchoHubNode);
 
-  // -------- Admin endpoint: trigger discovery from editor button --------
   RED.httpAdmin.post(
     "/amazon-echo-ha-entities/discover",
     RED.auth.needsPermission("flows.write"),
@@ -94,7 +121,6 @@ module.exports = function (RED) {
       try {
         const nodeId = req.body && req.body.id;
         if (!nodeId) return res.status(400).send("Missing node id");
-
         const instance = RED.nodes.getNode(nodeId);
         if (!instance || typeof instance.doDiscovery !== "function") {
           return res.status(404).send("Hub instance not found");
@@ -106,15 +132,4 @@ module.exports = function (RED) {
       }
     }
   );
-
-  // ---------- HA auto-pick helper (HA add-on) ----------
-  function autoPickHaServer(RED) {
-    // try to find a HA websocket "server" config node from node-red-contrib-home-assistant-websocket
-    const configs = [];
-    if (RED.nodes.eachConfig) {
-      RED.nodes.eachConfig(n => configs.push(n));
-    }
-    const serverConfig = configs.find(n => n.type === "server");
-    return serverConfig ? RED.nodes.getNode(serverConfig.id) : null;
-  }
 };

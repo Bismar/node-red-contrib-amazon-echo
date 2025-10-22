@@ -8,7 +8,7 @@ module.exports = function (RED) {
     const node = this;
 
     node.name       = config.name || "";
-    node.haServer   = RED.nodes.getNode(config.haServer) || null; // required in HTML
+    node.haServer   = RED.nodes.getNode(config.haServer) || null; // selected HA server config node
     node.haDeviceId = config.haDeviceId || "";
     node.haEntityId = config.haEntityId || "";
     node.deviceid   = node.deviceid || config.deviceid || null;
@@ -43,14 +43,13 @@ module.exports = function (RED) {
   RED.nodes.registerType("amazon-echo-device-ha-entities", AmazonEchoDeviceNode);
 
   // ---------- Admin endpoints for editor dropdowns ----------
+  // GET /amazon-echo-ha-entities/devices?server=<id>
   RED.httpAdmin.get(
     "/amazon-echo-ha-entities/devices",
     RED.auth.needsPermission("flows.read"),
     async (req, res) => {
       try {
-        const serverId = req.query.server;
-        if (!serverId) return res.status(400).send("Missing server id");
-        const haServer = RED.nodes.getNode(serverId);
+        const haServer = resolveHaServer(RED, req.query.server);
         if (!haServer) return res.status(400).send("Home Assistant server config node not found");
 
         const { wsUrl, token } = getHaUrlAndToken(haServer);
@@ -68,14 +67,13 @@ module.exports = function (RED) {
     }
   );
 
+  // GET /amazon-echo-ha-entities/entities?server=<id>&device=<device_id?>
   RED.httpAdmin.get(
     "/amazon-echo-ha-entities/entities",
     RED.auth.needsPermission("flows.read"),
     async (req, res) => {
       try {
-        const serverId = req.query.server;
-        if (!serverId) return res.status(400).send("Missing server id");
-        const haServer = RED.nodes.getNode(serverId);
+        const haServer = resolveHaServer(RED, req.query.server);
         if (!haServer) return res.status(400).send("Home Assistant server config node not found");
 
         const { wsUrl, token } = getHaUrlAndToken(haServer);
@@ -100,6 +98,26 @@ module.exports = function (RED) {
   );
 
   // ---------- Helpers ----------
+
+  // Prefer the server id passed from the UI; if missing/invalid or lacking creds,
+  // auto-pick the first HA server config that exposes a usable URL+token.
+  function resolveHaServer(RED, serverId) {
+    let s = null;
+    if (serverId) {
+      s = RED.nodes.getNode(serverId) || null;
+      const { wsUrl, token } = getHaUrlAndToken(s);
+      if (wsUrl && token) return s; // good to go
+    }
+    // fallback: scan all config nodes for type "server"
+    const configs = [];
+    if (RED.nodes.eachConfig) RED.nodes.eachConfig(n => configs.push(n));
+    const serverCfg = configs.find(n => n.type === "server");
+    if (!serverCfg) return null;
+    const candidate = RED.nodes.getNode(serverCfg.id);
+    const { wsUrl, token } = getHaUrlAndToken(candidate);
+    return (wsUrl && token) ? candidate : null;
+  }
+
   function getHaUrlAndToken(haServer) {
     if (!haServer) return { baseUrl: null, token: null, wsUrl: null };
 
@@ -146,22 +164,22 @@ module.exports = function (RED) {
           if (hello.type !== "auth_required") return reject(new Error("Unexpected HA hello"));
           send({ type: "auth", access_token: token });
 
-          ws.once("message", (raw2) => {
-            let auth; try { auth = JSON.parse(raw2); } catch (e) { return reject(new Error("Invalid HA auth response")); }
-            if (auth.type !== "auth_ok") return reject(new Error("HA auth failed"));
+        ws.once("message", (raw2) => {
+          let auth; try { auth = JSON.parse(raw2); } catch (e) { return reject(new Error("Invalid HA auth response")); }
+          if (auth.type !== "auth_ok") return reject(new Error("HA auth failed"));
 
-            const id = nextId++;
-            send(Object.assign({ id }, msg));
+          const id = nextId++;
+          send(Object.assign({ id }, msg));
 
-            ws.on("message", (raw3) => {
-              let resp; try { resp = JSON.parse(raw3); } catch (e) { return; }
-              if (resp.id === id) {
-                ws.close();
-                if (resp.success === false) return reject(new Error((resp.error && resp.error.message) || "HA command failed"));
-                resolve(resp.result || []);
-              }
-            });
+          ws.on("message", (raw3) => {
+            let resp; try { resp = JSON.parse(raw3); } catch (e) { return; }
+            if (resp.id === id) {
+              ws.close();
+              if (resp.success === false) return reject(new Error((resp.error && resp.error.message) || "HA command failed"));
+              resolve(resp.result || []);
+            }
           });
+        });
         });
       });
       ws.on("error", reject);

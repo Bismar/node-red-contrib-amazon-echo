@@ -1,34 +1,80 @@
+<!-- nodes/amazon-echo-hub.html -->
 <script type="text/html" data-template-name="amazon-echo-hub-ha-entities">
   <div class="form-row">
-    <label for="node-input-name"><i class="icon-tag"></i> Name</label>
-    <input type="text" id="node-input-name" placeholder="Hub Name">
+    <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+    <input type="text" id="node-input-name" placeholder="Amazon Echo Hub (HA)">
   </div>
 
   <div class="form-row">
-    <label for="node-input-port"><i class="icon-sitemap"></i> Port</label>
-    <input type="number" id="node-input-port" placeholder="default 80">
+    <label for="node-input-port"><i class="fa fa-plug"></i> Port</label>
+    <input type="number" id="node-input-port" min="1" max="65535" placeholder="80">
+  </div>
+
+  <div class="form-row">
+    <label for="node-input-process"><i class="fa fa-cogs"></i> Process input</label>
+    <input type="checkbox" id="node-input-process" style="width:auto; vertical-align:middle;">
+    <span class="note">When enabled, messages received by this node will be processed/forwarded.</span>
+  </div>
+
+  <div class="form-row">
+    <label><i class="fa fa-search"></i> Discovery</label>
+    <button type="button" class="red-ui-button" id="nr-ha-echo-discover-btn">
+      <i class="fa fa-bullseye"></i> Run discovery now
+    </button>
+    <span class="note">Triggers device discovery for this hub instance.</span>
   </div>
 </script>
 
 <script type="text/html" data-help-name="amazon-echo-hub-ha-entities">
-  <p>Amazon Echo Hub node (HA Entities variant). This node manages the communication between your Echo devices and the Alexa service.</p>
+  <p><b>Amazon Echo Hub (HA Entities)</b> — a renamed, parallel hub node that can live alongside the original
+     <code>node-red-contrib-amazon-echo</code> without conflicts.</p>
+  <ul>
+    <li><b>Port</b>: TCP port used by the hub (match your deployment needs).</li>
+    <li><b>Process input</b>: If checked, incoming messages to this node will be processed/forwarded.</li>
+    <li><b>Run discovery now</b>: Click to run a discovery cycle immediately (useful during setup).</li>
+  </ul>
 </script>
 
 <script type="text/javascript">
-  (function () {
-    RED.nodes.registerType("amazon-echo-hub-ha-entities", {
-      category: "input",
-      color: "#FFD580",
-      defaults: {
-        name: { value: "" },
-        port: { value: 80 }
-      },
-      inputs: 1,
-      outputs: 1,
-      icon: "amazon-echo-hub.svg",
-      label: function () {
-        return this.name || "Amazon Echo Hub (HA)";
-      }
-    });
-  })();
+(function () {
+  RED.nodes.registerType("amazon-echo-hub-ha-entities", {
+    category: "amazon",
+    color: "#FFD580",
+    icon: "bridge.svg",
+    align: "right",
+    inputs: 1,
+    outputs: 1,
+    paletteLabel: "amazon echo hub (HA)",
+    defaults: {
+      name:   { value: "" },
+      port:   { value: 80, validate: function(v){ return !isNaN(v) && v >= 1 && v <= 65535; } },
+      process:{ value: true } // mirror “Process input” behaviour from the original
+    },
+    label: function () {
+      return this.name || "Amazon Echo Hub (HA)";
+    },
+    oneditprepare: function () {
+      const nodeId = this.id;
+      const $btn = $("#nr-ha-echo-discover-btn");
+      $btn.off("click").on("click", function(){
+        $btn.prop("disabled", true).text("Running discovery…");
+        $.ajax({
+          type: "POST",
+          url: "amazon-echo-ha-entities/discover",
+          data: JSON.stringify({ id: nodeId }),
+          contentType: "application/json"
+        })
+        .done(function(){
+          RED.notify("Discovery triggered.", "success", null, 1500);
+        })
+        .fail(function(xhr){
+          RED.notify("Failed to trigger discovery: " + (xhr.responseText || xhr.statusText), "error");
+        })
+        .always(function(){
+          $btn.prop("disabled", false).html('<i class="fa fa-bullseye"></i> Run discovery now');
+        });
+      });
+    }
+  });
+})();
 </script>

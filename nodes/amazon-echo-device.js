@@ -1,5 +1,5 @@
 // nodes/amazon-echo-device.js
-// Amazon Echo Device (HA Entities) — Entity/Device dropdowns + modes/attributes preview
+// Amazon Echo Device (HA Entities) — Filters (Area/Label/Domain) + Device/Entity + modes/attrs preview
 const WebSocket = require("ws");
 
 module.exports = function (RED) {
@@ -9,6 +9,9 @@ module.exports = function (RED) {
 
     node.name       = config.name || "";
     node.haServer   = RED.nodes.getNode(config.haServer) || null; // selected HA server config node
+    node.haAreaId   = config.haAreaId || "";   // new
+    node.haLabelId  = config.haLabelId || "";  // new
+    node.haDomain   = config.haDomain || "";   // new
     node.haDeviceId = config.haDeviceId || "";
     node.haEntityId = config.haEntityId || "";
     node.deviceid   = node.deviceid || config.deviceid || null;
@@ -20,7 +23,6 @@ module.exports = function (RED) {
       try {
         const nodeDeviceId = node.deviceid || node.id;
         if (msg && msg.deviceid && msg.deviceid === nodeDeviceId) {
-          // Non-breaking: enrich payload with HA linkage
           if (typeof msg.payload !== "object" || msg.payload === null) {
             msg.payload = { value: msg.payload };
           }
@@ -42,9 +44,49 @@ module.exports = function (RED) {
 
   RED.nodes.registerType("amazon-echo-device-ha-entities", AmazonEchoDeviceNode);
 
-  // ---------- Admin endpoints for editor UI ----------
+  // ---------- Admin endpoints ----------
 
-  // List HA devices
+  // Filters: areas, labels, domains, and total device count
+  RED.httpAdmin.get(
+    "/amazon-echo-ha-entities/filters",
+    RED.auth.needsPermission("flows.read"),
+    async (req, res) => {
+      try {
+        const haServer = resolveHaServer(RED, req.query.server);
+        if (!haServer) return res.status(400).send("Home Assistant server config node not found");
+
+        const { wsUrl, token } = getHaUrlAndToken(RED, haServer, req.query.server);
+        if (!wsUrl || !token) return res.status(400).send("HA URL/token missing on selected server");
+
+        const [areas, labels, devices, entities] = await Promise.all([
+          wsCall(wsUrl, token, { type: "config/area_registry/list" }),
+          wsCall(wsUrl, token, { type: "config/label_registry/list" }).catch(() => []), // label registry may not exist on older HA
+          wsCall(wsUrl, token, { type: "config/device_registry/list" }),
+          wsCall(wsUrl, token, { type: "config/entity_registry/list" })
+        ]);
+
+        // Domains list from entities
+        const domainCounts = {};
+        (entities || []).forEach(e => {
+          const domain = (e && e.entity_id && e.entity_id.split(".")[0]) || null;
+          if (!domain) return;
+          domainCounts[domain] = (domainCounts[domain] || 0) + 1;
+        });
+        const domains = Object.keys(domainCounts).sort().map(d => ({ domain: d, count: domainCounts[d] }));
+
+        res.json({
+          total_devices: Array.isArray(devices) ? devices.length : 0,
+          areas: (areas || []).map(a => ({ area_id: a.area_id, name: a.name || a.area_id })),
+          labels: (labels || []).map(l => ({ label_id: l.label_id, name: l.name || l.label_id })),
+          domains
+        });
+      } catch (err) {
+        res.status(500).send(err.message || String(err));
+      }
+    }
+  );
+
+  // Devices list (filtered by area/label/domain)
   RED.httpAdmin.get(
     "/amazon-echo-ha-entities/devices",
     RED.auth.needsPermission("flows.read"),
@@ -56,11 +98,52 @@ module.exports = function (RED) {
         const { wsUrl, token } = getHaUrlAndToken(RED, haServer, req.query.server);
         if (!wsUrl || !token) return res.status(400).send("HA URL/token missing on selected server");
 
-        const devices = await wsCall(wsUrl, token, { type: "config/device_registry/list" });
-        const out = (devices || []).map((d) => {
+        const [devices, entities] = await Promise.all([
+          wsCall(wsUrl, token, { type: "config/device_registry/list" }),
+          wsCall(wsUrl, token, { type: "config/entity_registry/list" })
+        ]);
+
+        const areaId  = (req.query.area  || "").trim();
+        const labelId = (req.query.label || "").trim();
+        const domain  = (req.query.domain|| "").trim();
+
+        // Map entities by device_id for filters (label/domain/area via entity takes precedence)
+        const entsByDevice = new Map();
+        (entities || []).forEach(e => {
+          if (!e || !e.device_id) return;
+          if (!entsByDevice.has(e.device_id)) entsByDevice.set(e.device_id, []);
+          entsByDevice.get(e.device_id).push(e);
+        });
+
+        const filtered = (devices || []).filter(d => {
+          const ents = entsByDevice.get(d.id) || [];
+
+          // Area filter: match device.area_id OR any entity.area_id
+          if (areaId) {
+            const matchArea = (d.area_id === areaId) || ents.some(e => e.area_id === areaId);
+            if (!matchArea) return false;
+          }
+
+          // Label filter: entities may carry labels; device usually doesn't
+          if (labelId) {
+            const matchLabel = ents.some(e => Array.isArray(e.labels) && e.labels.includes(labelId));
+            if (!matchLabel) return false;
+          }
+
+          // Domain filter: match if the device has at least one entity with that domain
+          if (domain) {
+            const matchDomain = ents.some(e => e.entity_id && e.entity_id.split(".")[0] === domain);
+            if (!matchDomain) return false;
+          }
+
+          return true;
+        });
+
+        const out = filtered.map(d => {
           const name = d.name_by_user || d.name || [d.manufacturer, d.model].filter(Boolean).join(" ") || d.id;
           return { id: d.id, name, displayName: name };
         });
+
         res.json(out);
       } catch (err) {
         res.status(500).send(err.message || String(err));
@@ -68,7 +151,7 @@ module.exports = function (RED) {
     }
   );
 
-  // List HA entities (optionally filtered by device id)
+  // Entities (optionally by device id)
   RED.httpAdmin.get(
     "/amazon-echo-ha-entities/entities",
     RED.auth.needsPermission("flows.read"),
@@ -81,8 +164,8 @@ module.exports = function (RED) {
         if (!wsUrl || !token) return res.status(400).send("HA URL/token missing on selected server");
 
         const all = await wsCall(wsUrl, token, { type: "config/entity_registry/list" });
+        const deviceId = (req.query.device || "").trim();
 
-        const deviceId = req.query.device || "";
         const filtered = (all || [])
           .filter(e => !deviceId || e.device_id === deviceId)
           .map(e => ({
@@ -98,7 +181,7 @@ module.exports = function (RED) {
     }
   );
 
-  // Fetch current state + attributes + detected modes for one entity
+  // Entity info (state + attributes + detected modes)
   RED.httpAdmin.get(
     "/amazon-echo-ha-entities/entity_info",
     RED.auth.needsPermission("flows.read"),
@@ -131,15 +214,13 @@ module.exports = function (RED) {
   );
 
   // ---------- Helpers ----------
-
   function resolveHaServer(RED, serverId) {
     let s = null;
     if (serverId) {
       s = RED.nodes.getNode(serverId) || null;
       const { wsUrl, token } = getHaUrlAndToken(RED, s, serverId);
-      if (wsUrl && token) return s; // good to go
+      if (wsUrl && token) return s;
     }
-    // fallback: scan all config nodes for type "server"
     const configs = [];
     if (RED.nodes.eachConfig) RED.nodes.eachConfig(n => configs.push(n));
     const serverCfgs = configs.filter(n => n.type === "server");
@@ -151,7 +232,7 @@ module.exports = function (RED) {
     return null;
   }
 
-  // Mirrors add-on behaviour: use Supervisor websocket if available; else LLAT + base URL
+  // Mirror HA add-on auth: supervisor proxy when available; otherwise LLAT+URL
   function getHaUrlAndToken(RED, haServer, serverId) {
     if (!haServer) return { baseUrl: null, token: null, wsUrl: null };
 
@@ -169,7 +250,6 @@ module.exports = function (RED) {
       };
     }
 
-    // Non add-on (or no supervisor token)
     const baseUrl =
       (typeof haServer.getUrl === "function" && haServer.getUrl()) ||
       haServer?.url ||
@@ -207,7 +287,6 @@ module.exports = function (RED) {
     const out = {};
     if (!attrs || typeof attrs !== "object") return out;
 
-    // Common mode/list attributes across domains
     const candidates = [
       "hvac_modes", "preset_modes", "fan_modes", "swing_modes", "swing_mode_list",
       "speed_list", "effect_list", "source_list", "input_source_list",
@@ -217,14 +296,11 @@ module.exports = function (RED) {
       const v = attrs[k];
       if (Array.isArray(v) && v.length) out[k] = v;
     });
-
-    // Also include any *custom* *_modes / *_list arrays
     Object.keys(attrs).forEach(k => {
       if ((/_modes$|_list$/i).test(k) && Array.isArray(attrs[k]) && attrs[k].length) {
         if (!out[k]) out[k] = attrs[k];
       }
     });
-
     return out;
   }
 

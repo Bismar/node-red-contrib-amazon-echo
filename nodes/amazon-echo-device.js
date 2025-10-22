@@ -6,7 +6,7 @@ module.exports = function (RED) {
     RED.nodes.createNode(this, config);
     const node = this;
 
-    // Existing properties (keep whatever you already had)
+    // Existing props
     node.name = config.name || "";
 
     // NEW persisted linkage (survives reboots in flow file)
@@ -14,11 +14,10 @@ module.exports = function (RED) {
     node.haDeviceId = config.haDeviceId || "";
     node.haEntityId = config.haEntityId || "";
 
-    // Keep compatibility with existing device id logic if present in this contrib
-    // (Some variants keep a deviceid; otherwise fallback to node.id)
+    // Compat: some variants store a deviceid for the echo device itself
     node.deviceid = node.deviceid || config.deviceid || null;
 
-    // Standard input handler – enhance payload when this node matches the incoming device id
+    // Runtime: enhance outgoing payload when this message targets this node's echo device
     node.on("input", (msg, send, done) => {
       const _send = send || node.send.bind(node);
       const _done = done || function(){};
@@ -37,7 +36,7 @@ module.exports = function (RED) {
           return _done();
         }
 
-        // fallback – pass through unchanged (or keep existing behaviour here)
+        // otherwise pass through
         _send(msg);
         _done();
       } catch (err) {
@@ -80,10 +79,11 @@ module.exports = function (RED) {
         const wsUrl = baseUrl.replace(/^http/i, "ws") + "/api/websocket";
         const devices = await wsCall(wsUrl, token, { type: "config/device_registry/list" });
 
-        const out = (devices || []).map((d) => ({
-          id: d.id,
-          name: d.name_by_user || d.name || [d.manufacturer, d.model].filter(Boolean).join(" ") || d.id,
-        }));
+        // Provide a displayName for the UI (showing a human-friendly name)
+        const out = (devices || []).map((d) => {
+          const name = d.name_by_user || d.name || [d.manufacturer, d.model].filter(Boolean).join(" ") || d.id;
+          return { id: d.id, name, displayName: name };
+        });
         res.json(out);
       } catch (err) {
         res.status(500).send(err.message || String(err));
@@ -117,12 +117,17 @@ module.exports = function (RED) {
         const wsUrl = baseUrl.replace(/^http/i, "ws") + "/api/websocket";
         const entities = await wsCall(wsUrl, token, { type: "config/entity_registry/list" });
 
+        // Provide displayName preferring friendly name; fallback to original_name or entity_id
         const filtered = (entities || [])
           .filter((e) => e.device_id === deviceId)
-          .map((e) => ({
-            entity_id: e.entity_id,
-            name: e.name || e.original_name || "",
-          }));
+          .map((e) => {
+            const displayName = e.name || e.original_name || e.entity_id;
+            return {
+              entity_id: e.entity_id,
+              name: e.name || e.original_name || "",
+              displayName
+            };
+          });
 
         res.json(filtered);
       } catch (err) {

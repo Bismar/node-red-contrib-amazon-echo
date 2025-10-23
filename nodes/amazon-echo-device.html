@@ -1,20 +1,19 @@
-<!-- amazon-echo-device.html -->
-<!-- Editor UI + Help + Node registration for the "amazon-echo-device" node -->
+<!-- nodes/amazon-echo-device-ha-entities.html -->
 
 <!-- =========================
      EDITOR TEMPLATE
 ========================= -->
-<script type="text/x-red" data-template-name="amazon-echo-device">
-  <div class="amazon-echo-device-config">
+<script type="text/x-red" data-template-name="amazon-echo-device-ha-entities">
+  <div class="amazon-echo-device-ha-entities-config">
 
     <div class="form-row">
       <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
-      <input type="text" id="node-input-name" placeholder="Friendly device name (used by Alexa)">
+      <input type="text" id="node-input-name" placeholder="Device name">
     </div>
 
     <div class="form-row">
       <label for="node-input-server"><i class="fa fa-home"></i> Home Assistant Server</label>
-      <input type="text" id="node-input-server">
+      <select id="node-input-server"></select>
     </div>
 
     <div class="form-row">
@@ -38,13 +37,13 @@
 
     <div class="form-row">
       <label for="node-input-room"><i class="fa fa-map-marker"></i> Room (optional)</label>
-      <input type="text" id="node-input-room" placeholder="For your own reference">
+      <input type="text" id="node-input-room" placeholder="For your reference">
     </div>
 
     <div class="form-row">
       <label for="node-input-passThrough"><i class="fa fa-random"></i> Pass through</label>
       <input type="checkbox" id="node-input-passThrough" style="width:auto">
-      <span class="form-tips">When enabled, incoming messages will be forwarded after processing.</span>
+      <span class="form-tips">Forward incoming messages after processing.</span>
     </div>
 
     <div class="form-row">
@@ -59,13 +58,13 @@
 <!-- =========================
      HELP TEXT
 ========================= -->
-<script type="text/markdown" data-help-name="amazon-echo-device">
+<script type="text/markdown" data-help-name="amazon-echo-device-ha-entities">
 Create a virtual device that Alexa can discover and control via the **Amazon Echo Hub** node.
 
 **Fields**
 - **Name** – Friendly name Alexa uses (must be unique).
-- **Home Assistant Server** – Your configured HA server reference.
-- **Component Type** – The HA domain to control (e.g. `light`, `switch`, `fan`, `cover`, `climate`).
+- **Home Assistant Server** – Your configured HA server.
+- **Component Type** – HA domain to control (e.g. `light`, `switch`, `fan`, `cover`, `climate`).
 - **Entity ID** – The Home Assistant entity id (e.g. `light.living_room`).
 - **Pass through** – Forward input messages after device processing.
 - **Debug** – Output additional diagnostic messages.
@@ -77,17 +76,18 @@ After adding/updating devices:
 
 <!-- =========================
      NODE REGISTRATION (Editor)
+     (Node name preserved exactly)
 ========================= -->
 <script type="text/javascript">
   (function() {
-    RED.nodes.registerType('amazon-echo-device', {
+    RED.nodes.registerType('amazon-echo-device-ha-entities', {
       category: 'home_assistant',
-      color: '#13b1ff',
-      icon: 'bridge.svg',
-      paletteLabel: 'amazon echo device',
+      color: '#a6bbcf',
+      icon: 'amazon-echo-device.svg',
+      paletteLabel: 'amazon echo device (HA)',
       defaults: {
         name: { value: "" },
-        server: { value: "", type: "ha-server", required: true },
+        server: { value: "", type: "amazon-echo-hub-ha-entities", required: true },
         component: { value: "switch", required: true },
         entity_id: { value: "", required: true },
         room: { value: "" },
@@ -98,58 +98,49 @@ After adding/updating devices:
       outputs: 1,
       align: 'right',
       label: function() {
-        return this.name || this.entity_id || "amazon-echo-device";
+        return this.name || this.entity_id || "amazon-echo-device-ha-entities";
       },
       oneditprepare: function () {
-        // If the original used typedInput for server, re-init here.
-        // Keeping neutral to work with either plain input or typed config reference.
-        try {
-          if ($("#node-input-server").length && !$("#node-input-server").hasClass("red-ui-typedInput")) {
-            // no-op; server is declared as a config node via defaults.type above
-          }
-        } catch (e) {}
+        // No behavior changes; layout fixes are pure CSS below.
       }
     });
   })();
 </script>
 
 <!-- =========================
-     LAYOUT / FIXES
+     LAYOUT FIXES (scoped)
 ========================= -->
 <style>
-  /* Keep “Component Type” label on one line */
-  .amazon-echo-device-config .form-row label.nowrap {
+  /* Keep “Component Type” on one line */
+  .amazon-echo-device-ha-entities-config .form-row label.nowrap {
     white-space: nowrap;
   }
 
-  /* Ensure consistent label widths & input alignment across rows */
-  .amazon-echo-device-config .form-row > label {
-    width: 160px;                  /* Slightly wider to accommodate long labels */
+  /* Align labels/controls consistently across rows */
+  .amazon-echo-device-ha-entities-config .form-row > label {
+    width: 160px;                 /* fixed label width */
     display: inline-block;
     box-sizing: border-box;
     vertical-align: top;
     margin-right: 10px;
   }
 
-  /* Inputs/selects/typedInputs align to form grid */
-  .amazon-echo-device-config .form-row > input[type="text"],
-  .amazon-echo-device-config .form-row > select,
-  .amazon-echo-device-config .form-row > .red-ui-typedInput,
-  .amazon-echo-device-config .form-row > .input-append {
-    width: calc(100% - 170px);     /* 160 label + 10 gap */
+  .amazon-echo-device-ha-entities-config .form-row > input[type="text"],
+  .amazon-echo-device-ha-entities-config .form-row > select,
+  .amazon-echo-device-ha-entities-config .form-row > .red-ui-typedInput,
+  .amazon-echo-device-ha-entities-config .form-row > .input-append {
+    width: calc(100% - 170px);    /* 160 label + 10 gap */
     max-width: 100%;
     box-sizing: border-box;
   }
 
-  /* Normalize specific rows that sometimes had inline widths */
-  .amazon-echo-device-config #node-input-name,
-  .amazon-echo-device-config #node-input-server,
-  .amazon-echo-device-config #node-input-component {
+  /* Explicitly normalize Name & Server rows */
+  .amazon-echo-device-ha-entities-config #node-input-name,
+  .amazon-echo-device-ha-entities-config #node-input-server {
     width: calc(100% - 170px) !important;
   }
 
-  /* Small helper text style */
-  .amazon-echo-device-config .form-tips {
+  .amazon-echo-device-ha-entities-config .form-tips {
     margin-left: 8px;
     font-size: 0.9em;
     color: var(--red-ui-secondary-text, #666);

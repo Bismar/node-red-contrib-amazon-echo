@@ -27,7 +27,7 @@
     </div>
 
     <div class="form-row">
-      <!-- prevent wrapping without changing text -->
+      <!-- keep text; just prevent wrapping -->
       <label for="node-input-haDomain" class="nowrap"><i class="fa fa-cube"></i> Component type</label>
       <select id="node-input-haDomain" style="width:100%"></select>
       <div class="form-tips" id="ha-domain-count" style="margin-top:2px;"></div>
@@ -186,12 +186,10 @@
       }
       resetAll();
 
-      // Load filter values + total device count
       function loadFilters(serverId) {
         if (!serverId) { resetAll(); return; }
         $.getJSON("amazon-echo-ha-entities/filters", { server: serverId })
           .done(function (data) {
-            // data: { total_devices, areas[], labels[], domains[] }
             TOTAL_DEVICES = data.total_devices || 0;
 
             resetSelect($area, "(All areas)");
@@ -209,12 +207,10 @@
               $domain.append($("<option/>", { value: d.domain, text: d.domain + (d.count ? ` (${d.count})` : "") }));
             });
 
-            // Restore prior selections if present
             if ($("#node-input-haAreaId").val())  $area.val($("#node-input-haAreaId").val());
             if ($("#node-input-haLabelId").val()) $label.val($("#node-input-haLabelId").val());
             if ($("#node-input-haDomain").val())  $domain.val($("#node-input-haDomain").val());
 
-            // Trigger device load after filters rendered
             loadDevices(serverId, $area.val(), $label.val(), $domain.val(), $("#node-input-haDeviceId").val());
           })
           .fail(function (xhr) {
@@ -239,10 +235,8 @@
             });
             if (selectedDeviceId) $device.val(selectedDeviceId);
 
-            // Update device count summary
             setCounts((devices || []).length);
 
-            // Now load entities for the selected/first device
             const devId = $device.val();
             loadEntities(serverId, devId, $("#node-input-haEntityId").val());
           })
@@ -293,46 +287,11 @@
           });
       }
 
-      // ---- SAFE: Auto-select the first available server if empty (no DOM changes) ----
-      setTimeout(function () {
-        try {
-          if ($("#node-input-haServer").val()) return; // already set (editing)
-          var sel = document.querySelector("#ha-server-row .input-append select, #ha-server-row select");
-          if (!sel || !sel.options || !sel.options.length) return;
-          // prefer first non-empty, else first option
-          var val = "";
-          for (var i = 0; i < sel.options.length; i++) {
-            if (sel.options[i].value) { val = sel.options[i].value; break; }
-          }
-          if (!val) val = sel.options[0].value || "";
-          if (!val) return;
-          sel.value = val;
-          sel.dispatchEvent(new Event("change", { bubbles: true }));
-          $("#node-input-haServer").val(val);
-        } catch(e) { /* no-op */ }
-      }, 0);
-      // -----------------------------------------------------------------------------
-
-      // Wire events
-      $server.on("change", function(){ loadFilters($server.val()); });
-      $area.on("change",   function(){
-        $("#node-input-haAreaId").val($area.val());
-        loadDevices($server.val(), $area.val(), $label.val(), $domain.val(), $("#node-input-haDeviceId").val());
-      });
-      $label.on("change",  function(){
-        $("#node-input-haLabelId").val($label.val());
-        loadDevices($server.val(), $area.val(), $label.val(), $domain.val(), $("#node-input-haDeviceId").val());
-      });
-      $domain.on("change", function(){
-        $("#node-input-haDomain").val($domain.val());
-        loadDevices($server.val(), $area.val(), $label.val(), $domain.val(), $("#node-input-haDeviceId").val());
-      });
-      $device.on("change", function(){
-        loadEntities($server.val(), $device.val(), $("#node-input-haEntityId").val());
-      });
-      $entity.on("change", function(){
-        setEntityHint();
-        loadEntityInfo($server.val(), $entity.val());
+      // Keep hidden input in sync if user changes the rendered select (safe)
+      $("#ha-server-row").on("change", "select", function () {
+        const val = this.value || "";
+        if (val) $server.val(val);
+        loadFilters(val);
       });
 
       // Initial populate (edit existing node)
@@ -351,6 +310,9 @@
 <style>
   /* keep “Component type” on one line */
   .amazon-echo-device-ha-entities-config label.nowrap { white-space: nowrap; }
+
+  /* make rows predictable without changing Node-RED flow */
+  .amazon-echo-device-ha-entities-config .form-row { position: relative; }
 
   /* fixed label width, right column fills remaining width (inline-block keeps Node-RED flow) */
   .amazon-echo-device-ha-entities-config .form-row > label {
@@ -372,17 +334,20 @@
     max-width: 100%;
   }
 
-  /* yellow tips align under the right column and expand with dialog width */
+  /* yellow tips align under the right column and are LEFT-aligned */
   .amazon-echo-device-ha-entities-config .form-row > .form-tips {
     display: block;
     margin-left: 190px;
     width: calc(100% - 190px);
     box-sizing: border-box;
+    text-align: left;    /* ensure left alignment */
+    float: none;         /* avoid inherited floats */
   }
   /* standalone tip (entity hint) same alignment */
   .amazon-echo-device-ha-entities-config #ha-entity-hint {
     margin-left: 190px;
     width: calc(100% - 190px);
+    text-align: left;
   }
 
   /* Home Assistant server row: keep markup, just lay out input-append as flex so

@@ -1,148 +1,353 @@
-<!-- nodes/amazon-echo-device-ha-entities.html -->
-
-<!-- =========================
-     EDITOR TEMPLATE
-========================= -->
-<script type="text/x-red" data-template-name="amazon-echo-device-ha-entities">
+<!-- nodes/amazon-echo-device.html -->
+<script type="text/html" data-template-name="amazon-echo-device-ha-entities">
   <div class="amazon-echo-device-ha-entities-config">
-
     <div class="form-row">
       <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
-      <input type="text" id="node-input-name" placeholder="Device name">
+      <input type="text" id="node-input-name" placeholder="Amazon Echo Device (HA)">
+    </div>
+
+    <!-- Required: HA server config node -->
+    <div class="form-row" id="ha-server-row">
+      <label for="node-input-haServer"><i class="fa fa-plug"></i> Home Assistant server</label>
+      <input type="text" id="node-input-haServer">
+    </div>
+
+    <!-- Filters BEFORE device selection -->
+    <div class="form-row">
+      <label for="node-input-haAreaId"><i class="fa fa-building"></i> Area</label>
+      <select id="node-input-haAreaId" style="width:100%"></select>
+      <div class="form-tips" id="ha-area-count" style="margin-top:2px;"></div>
     </div>
 
     <div class="form-row">
-      <label for="node-input-server"><i class="fa fa-home"></i> Home Assistant Server</label>
-      <select id="node-input-server"></select>
+      <label for="node-input-haLabelId"><i class="fa fa-tag"></i> Label</label>
+      <select id="node-input-haLabelId" style="width:100%"></select>
+      <div class="form-tips" id="ha-label-count" style="margin-top:2px;"></div>
     </div>
 
     <div class="form-row">
-      <label for="node-input-component" class="nowrap"><i class="fa fa-cubes"></i> Component&nbsp;Type</label>
-      <select id="node-input-component">
-        <option value="switch">switch</option>
-        <option value="light">light</option>
-        <option value="fan">fan</option>
-        <option value="cover">cover</option>
-        <option value="climate">climate</option>
-        <option value="scene">scene</option>
-        <option value="script">script</option>
-        <option value="input_boolean">input_boolean</option>
-      </select>
+      <label for="node-input-haDomain" class="nowrap"><i class="fa fa-cube"></i> Component type</label>
+      <select id="node-input-haDomain" style="width:100%"></select>
+      <div class="form-tips" id="ha-domain-count" style="margin-top:2px;"></div>
     </div>
 
     <div class="form-row">
-      <label for="node-input-entity_id"><i class="fa fa-hashtag"></i> Entity ID</label>
-      <input type="text" id="node-input-entity_id" placeholder="e.g. light.living_room">
+      <label for="node-input-haDeviceId"><i class="fa fa-cubes"></i> Device</label>
+      <select id="node-input-haDeviceId" style="width:100%"></select>
+      <div class="form-tips" id="ha-device-count" style="margin-top:2px;"></div>
     </div>
 
     <div class="form-row">
-      <label for="node-input-room"><i class="fa fa-map-marker"></i> Room (optional)</label>
-      <input type="text" id="node-input-room" placeholder="For your reference">
+      <label for="node-input-haEntityId"><i class="fa fa-dot-circle-o"></i> Entity</label>
+      <select id="node-input-haEntityId" style="width:100%"></select>
     </div>
 
-    <div class="form-row">
-      <label for="node-input-passThrough"><i class="fa fa-random"></i> Pass through</label>
-      <input type="checkbox" id="node-input-passThrough" style="width:auto">
-      <span class="form-tips">Forward incoming messages after processing.</span>
+    <!-- Live hint with the raw entity_id -->
+    <div class="form-tips" id="ha-entity-hint" style="margin-top:4px;"></div>
+
+    <!-- Modes & attributes preview -->
+    <div class="form-row" id="ha-entity-modes-row" style="display:none;">
+      <label><i class="fa fa-sliders"></i> Available modes</label>
+      <div id="ha-entity-modes" class="form-tips"></div>
     </div>
 
-    <div class="form-row">
-      <label for="node-input-debug"><i class="fa fa-bug"></i> Debug</label>
-      <input type="checkbox" id="node-input-debug" style="width:auto">
-      <span class="form-tips">Outputs diagnostic info on state changes.</span>
+    <div class="form-row" id="ha-entity-attrs-row" style="display:none;">
+      <label><i class="fa fa-list"></i> Attributes</label>
+      <pre id="ha-entity-attrs" style="max-height:240px; overflow:auto; background:#f7f7f7; border:1px solid #ddd; padding:6px; border-radius:3px;"></pre>
     </div>
-
   </div>
 </script>
 
-<!-- =========================
-     HELP TEXT
-========================= -->
-<script type="text/markdown" data-help-name="amazon-echo-device-ha-entities">
-Create a virtual device that Alexa can discover and control via the **Amazon Echo Hub** node.
-
-**Fields**
-- **Name** – Friendly name Alexa uses (must be unique).
-- **Home Assistant Server** – Your configured HA server.
-- **Component Type** – HA domain to control (e.g. `light`, `switch`, `fan`, `cover`, `climate`).
-- **Entity ID** – The Home Assistant entity id (e.g. `light.living_room`).
-- **Pass through** – Forward input messages after device processing.
-- **Debug** – Output additional diagnostic messages.
-
-After adding/updating devices:
-1. Deploy your flow.
-2. Ask **“Alexa, discover devices.”**
+<script type="text/html" data-help-name="amazon-echo-device-ha-entities">
+  <p>Link an Amazon Echo device with a Home Assistant Device &amp; Entity.</p>
+  <ul>
+    <li>Pre-filter by <b>Area</b>, <b>Label</b>, and <b>Component type</b> (domain), with counts showing total devices and how many are filtered out.</li>
+    <li>Pick a <b>Device</b> and then an <b>Entity</b>. The selected <code>entity_id</code> and its modes/attributes are shown below.</li>
+  </ul>
 </script>
 
-<!-- =========================
-     NODE REGISTRATION (Editor)
-     (Node name preserved exactly)
-========================= -->
 <script type="text/javascript">
-  (function() {
-    RED.nodes.registerType('amazon-echo-device-ha-entities', {
-      category: 'amazon',
-      color: '#a6bbcf',
-      icon: 'amazon-echo-device.svg',
-      paletteLabel: 'amazon echo device (HA)',
-      defaults: {
-        name: { value: "" },
-        server: { value: "", type: "amazon-echo-hub-ha-entities", required: true },
-        component: { value: "switch", required: true },
-        entity_id: { value: "", required: true },
-        room: { value: "" },
-        passThrough: { value: false },
-        debug: { value: false }
-      },
-      inputs: 1,
-      outputs: 1,
-      align: 'right',
-      label: function() {
-        return this.name || this.entity_id || "amazon-echo-device-ha-entities";
-      },
-      oneditprepare: function () {
-        // No behavior changes; layout fixes are pure CSS below.
+(function () {
+  RED.nodes.registerType("amazon-echo-device-ha-entities", {
+    category: "amazon",
+    color: "#FFD580",
+    icon: "amazon-echo-device.svg",
+    inputs: 1,
+    outputs: 1,
+    align: "right",
+    paletteLabel: "amazon echo device (HA)",
+    defaults: {
+      name:       { value: "" },
+      haServer:   { value: "", type: "server", required: true },
+      haAreaId:   { value: "" },   // new
+      haLabelId:  { value: "" },   // new
+      haDomain:   { value: "" },   // new
+      haDeviceId: { value: "" },
+      haEntityId: { value: "" }
+    },
+    label: function () {
+      return this.name || "Amazon Echo Device (HA)";
+    },
+    oneditprepare: function () {
+      const $server = $("#node-input-haServer");
+      const $area   = $("#node-input-haAreaId");
+      const $label  = $("#node-input-haLabelId");
+      const $domain = $("#node-input-haDomain");
+      const $device = $("#node-input-haDeviceId");
+      const $entity = $("#node-input-haEntityId");
+
+      const $areaCount   = $("#ha-area-count");
+      const $labelCount  = $("#ha-label-count");
+      const $domainCount = $("#ha-domain-count");
+      const $deviceCount = $("#ha-device-count");
+
+      const $hint   = $("#ha-entity-hint");
+      const $modesRow = $("#ha-entity-modes-row");
+      const $modes    = $("#ha-entity-modes");
+      const $attrsRow = $("#ha-entity-attrs-row");
+      const $attrs    = $("#ha-entity-attrs");
+
+      let TOTAL_DEVICES = 0;
+
+      function setEntityHint() {
+        const eid = $entity.val() || "";
+        $hint.text(eid ? ("Selected entity_id: " + eid) : "");
       }
-    });
-  })();
+
+      function showEntityInfo(info) {
+        if (!info || !info.entity_id) {
+          $modesRow.hide(); $attrsRow.hide(); $modes.empty(); $attrs.text("");
+          return;
+        }
+        const dm = info.detected_modes || {};
+        const keys = Object.keys(dm).filter(k => Array.isArray(dm[k]) && dm[k].length);
+        if (keys.length) {
+          const frag = document.createDocumentFragment();
+          keys.forEach(k => {
+            const group = document.createElement("div");
+            group.style.marginBottom = "4px";
+            const title = document.createElement("div");
+            title.style.fontWeight = "600";
+            title.textContent = k;
+            group.appendChild(title);
+            dm[k].forEach(v => {
+              const pill = document.createElement("span");
+              pill.textContent = v;
+              pill.style.display = "inline-block";
+              pill.style.padding = "2px 6px";
+              pill.style.margin = "2px 6px 0 0";
+              pill.style.border = "1px solid #bbb";
+              pill.style.borderRadius = "999px";
+              pill.style.background = "#fff";
+              group.appendChild(pill);
+            });
+            frag.appendChild(group);
+          });
+          $modes.empty().append(frag);
+          $modesRow.show();
+        } else {
+          $modes.empty(); $modesRow.hide();
+        }
+
+        if (info.attributes && typeof info.attributes === "object") {
+          try { $attrs.text(JSON.stringify(info.attributes, null, 2)); }
+          catch (e) { $attrs.text(String(info.attributes)); }
+          $attrsRow.show();
+        } else {
+          $attrs.text(""); $attrsRow.hide();
+        }
+      }
+
+      function setCounts(filteredDevicesCount) {
+        const filteredOut = Math.max(0, TOTAL_DEVICES - filteredDevicesCount);
+        const labelText = (x,y) => `${x} available, ${y} filtered`;
+        $areaCount.text(labelText(TOTAL_DEVICES, filteredOut));
+        $labelCount.text(labelText(TOTAL_DEVICES, filteredOut));
+        $domainCount.text(labelText(TOTAL_DEVICES, filteredOut));
+        $deviceCount.text(labelText(TOTAL_DEVICES, filteredOut));
+      }
+
+      function resetSelect($sel, firstText) {
+        $sel.empty().append($("<option/>",{value:"",text:firstText}));
+      }
+
+      function resetAll() {
+        resetSelect($area,   "(All areas)");
+        resetSelect($label,  "(All labels)");
+        resetSelect($domain, "(All component types)");
+        resetSelect($device, "(Select device)");
+        resetSelect($entity, "(Select entity)");
+        $entity.prop("disabled", true);
+        setEntityHint();
+        showEntityInfo(null);
+        setCounts(0);
+      }
+      resetAll();
+
+      // Load filter values + total device count
+      function loadFilters(serverId) {
+        if (!serverId) { resetAll(); return; }
+        $.getJSON("amazon-echo-ha-entities/filters", { server: serverId })
+          .done(function (data) {
+            // data: { total_devices, areas[], labels[], domains[] }
+            TOTAL_DEVICES = data.total_devices || 0;
+
+            resetSelect($area, "(All areas)");
+            (data.areas || []).forEach(a => {
+              $area.append($("<option/>", { value: a.area_id, text: a.name || a.area_id }));
+            });
+
+            resetSelect($label, "(All labels)");
+            (data.labels || []).forEach(l => {
+              $label.append($("<option/>", { value: l.label_id, text: l.name || l.label_id }));
+            });
+
+            resetSelect($domain, "(All component types)");
+            (data.domains || []).forEach(d => {
+              $domain.append($("<option/>", { value: d.domain, text: d.domain + (d.count ? ` (${d.count})` : "") }));
+            });
+
+            // Restore prior selections if present
+            if ($("#node-input-haAreaId").val())  $area.val($("#node-input-haAreaId").val());
+            if ($("#node-input-haLabelId").val()) $label.val($("#node-input-haLabelId").val());
+            if ($("#node-input-haDomain").val())  $domain.val($("#node-input-haDomain").val());
+
+            // Trigger device load after filters rendered
+            loadDevices(serverId, $area.val(), $label.val(), $domain.val(), $("#node-input-haDeviceId").val());
+          })
+          .fail(function (xhr) {
+            resetAll();
+            RED.notify("Failed to load filters: " + (xhr.responseText || xhr.statusText), "error");
+          });
+      }
+
+      function loadDevices(serverId, areaId, labelId, domain, selectedDeviceId) {
+        if (!serverId) { resetAll(); return; }
+        resetSelect($device, "(Loading devices...)");
+        const query = { server: serverId };
+        if (areaId)  query.area  = areaId;
+        if (labelId) query.label = labelId;
+        if (domain)  query.domain = domain;
+
+        $.getJSON("amazon-echo-ha-entities/devices", query)
+          .done(function (devices) {
+            resetSelect($device, "(Select device)");
+            (devices || []).forEach(d => {
+              $device.append($("<option/>", { value: d.id, text: d.displayName || d.name || d.id }));
+            });
+            if (selectedDeviceId) $device.val(selectedDeviceId);
+
+            // Update device count summary
+            setCounts((devices || []).length);
+
+            // Now load entities for the selected/first device
+            const devId = $device.val();
+            loadEntities(serverId, devId, $("#node-input-haEntityId").val());
+          })
+          .fail(function (xhr) {
+            resetSelect($device, "(failed to load)");
+            setCounts(0);
+            RED.notify("Failed to load devices: " + (xhr.responseText || xhr.statusText), "error");
+          });
+      }
+
+      function loadEntities(serverId, deviceId, selectedEntityId) {
+        $entity.prop("disabled", true);
+        resetSelect($entity, "(Loading entities...)");
+        const query = { server: serverId };
+        if (deviceId) query.device = deviceId;
+
+        $.getJSON("amazon-echo-ha-entities/entities", query)
+          .done(function (entities) {
+            resetSelect($entity, "(Select entity)");
+            (entities || []).forEach(e => {
+              const label = e.displayName || e.name || e.entity_id;
+              $entity.append($("<option/>",{ value: e.entity_id, text: label }));
+            });
+            if (selectedEntityId) $entity.val(selectedEntityId);
+            $entity.prop("disabled", false);
+            setEntityHint();
+            if ($entity.val()) {
+              loadEntityInfo($server.val(), $entity.val());
+            } else {
+              showEntityInfo(null);
+            }
+          })
+          .fail(function (xhr) {
+            resetSelect($entity, "(failed to load)");
+            RED.notify("Failed to load entities: " + (xhr.responseText || xhr.statusText), "error");
+            setEntityHint();
+            showEntityInfo(null);
+          });
+      }
+
+      function loadEntityInfo(serverId, entityId) {
+        if (!serverId || !entityId) { showEntityInfo(null); return; }
+        $.getJSON("amazon-echo-ha-entities/entity_info", { server: serverId, entity: entityId })
+          .done(info => { showEntityInfo(info); })
+          .fail(xhr => {
+            RED.notify("Failed to load entity details: " + (xhr.responseText || xhr.statusText), "error");
+            showEntityInfo(null);
+          });
+      }
+
+      // Wire events
+      $server.on("change", function(){ loadFilters($server.val()); });
+      $area.on("change",   function(){
+        $("#node-input-haAreaId").val($area.val());
+        loadDevices($server.val(), $area.val(), $label.val(), $domain.val(), $("#node-input-haDeviceId").val());
+      });
+      $label.on("change",  function(){
+        $("#node-input-haLabelId").val($label.val());
+        loadDevices($server.val(), $area.val(), $label.val(), $domain.val(), $("#node-input-haDeviceId").val());
+      });
+      $domain.on("change", function(){
+        $("#node-input-haDomain").val($domain.val());
+        loadDevices($server.val(), $area.val(), $label.val(), $domain.val(), $("#node-input-haDeviceId").val());
+      });
+      $device.on("change", function(){
+        loadEntities($server.val(), $device.val(), $("#node-input-haEntityId").val());
+      });
+      $entity.on("change", function(){
+        setEntityHint();
+        loadEntityInfo($server.val(), $entity.val());
+      });
+
+      // Initial populate (edit existing node)
+      const initialServer = $server.val();
+      if (initialServer) {
+        loadFilters(initialServer);
+      } else {
+        resetAll();
+      }
+    }
+  });
+})();
 </script>
 
-<!-- =========================
-     LAYOUT FIXES (scoped)
-========================= -->
+<!-- Layout-only, scoped to this node -->
 <style>
-  /* Keep “Component Type” on one line */
+  /* keep “Component type” on one line without changing its text */
   .amazon-echo-device-ha-entities-config .form-row label.nowrap {
     white-space: nowrap;
   }
 
-  /* Align labels/controls consistently across rows */
+  /* normalize label width so left edges line up */
   .amazon-echo-device-ha-entities-config .form-row > label {
-    width: 160px;                 /* fixed label width */
+    width: 180px;
     display: inline-block;
-    box-sizing: border-box;
     vertical-align: top;
+    box-sizing: border-box;
     margin-right: 10px;
   }
 
+  /* normalize control widths so right edges line up (overrides inline width:100%) */
   .amazon-echo-device-ha-entities-config .form-row > input[type="text"],
   .amazon-echo-device-ha-entities-config .form-row > select,
   .amazon-echo-device-ha-entities-config .form-row > .red-ui-typedInput,
   .amazon-echo-device-ha-entities-config .form-row > .input-append {
-    width: calc(100% - 170px);    /* 160 label + 10 gap */
+    width: calc(100% - 190px) !important; /* 180 label + 10 gap */
     max-width: 100%;
     box-sizing: border-box;
-  }
-
-  /* Explicitly normalize Name & Server rows */
-  .amazon-echo-device-ha-entities-config #node-input-name,
-  .amazon-echo-device-ha-entities-config #node-input-server {
-    width: calc(100% - 170px) !important;
-  }
-
-  .amazon-echo-device-ha-entities-config .form-tips {
-    margin-left: 8px;
-    font-size: 0.9em;
-    color: var(--red-ui-secondary-text, #666);
   }
 </style>

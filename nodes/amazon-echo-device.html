@@ -1,6 +1,6 @@
 <!-- nodes/amazon-echo-device.html -->
 <script type="text/html" data-template-name="amazon-echo-device-ha-entities">
-  <!-- ADDED: wrapper for scoped styling -->
+  <!-- wrapper for scoped styling (layout-only) -->
   <div class="amazon-echo-device-ha-entities-config">
     <div class="form-row">
       <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
@@ -27,7 +27,7 @@
     </div>
 
     <div class="form-row">
-      <!-- ADDED: nowrap class to stop a line break without changing text -->
+      <!-- prevent wrapping (text unchanged) -->
       <label for="node-input-haDomain" class="nowrap"><i class="fa fa-cube"></i> Component type</label>
       <select id="node-input-haDomain" style="width:100%"></select>
       <div class="form-tips" id="ha-domain-count" style="margin-top:2px;"></div>
@@ -323,67 +323,62 @@
 <!-- LAYOUT-ONLY (scoped) -->
 <style>
   :root {
-    /* tweak if your labels truncate; everything below derives from these */
-    --aehe-label-w: 180px;
+    --aehe-label-w: 180px;  /* adjust if your labels truncate */
     --aehe-gap: 10px;
   }
 
-  /* keep “Component type” on one line (text unchanged) */
-  .amazon-echo-device-ha-entities-config .form-row label.nowrap {
-    white-space: nowrap;
+  /* prevent wrapping in “Component type” */
+  .amazon-echo-device-ha-entities-config label.nowrap { white-space: nowrap; }
+
+  /* Two-column grid per row: fixed label + flexible field */
+  .amazon-echo-device-ha-entities-config .form-row {
+    display: grid;
+    grid-template-columns: var(--aehe-label-w) 1fr;
+    column-gap: var(--aehe-gap);
+    align-items: center;
   }
 
-  /* left column: fixed label width */
+  /* Put labels in column 1 */
   .amazon-echo-device-ha-entities-config .form-row > label {
-    width: var(--aehe-label-w);
-    display: inline-block;
-    vertical-align: top;
+    grid-column: 1;
     box-sizing: border-box;
-    margin-right: var(--aehe-gap);
   }
 
-  /* right column: inputs/selects take the remaining space and expand with dialog */
+  /* Put all inputs/selects/etc. in column 2 and stretch */
   .amazon-echo-device-ha-entities-config .form-row > input[type="text"],
   .amazon-echo-device-ha-entities-config .form-row > select,
   .amazon-echo-device-ha-entities-config .form-row > .red-ui-typedInput,
   .amazon-echo-device-ha-entities-config .form-row > .input-append {
-    width: calc(100% - (var(--aehe-label-w) + var(--aehe-gap))) !important;
+    grid-column: 2;
+    width: 100% !important;   /* fill the right column */
     max-width: 100%;
     box-sizing: border-box;
   }
 
-  /* SPECIAL CASE: the HA server row becomes an "input-append" with buttons.
-     Make it flex so the select/typedInput grows and the buttons stay snug. */
+  /* Server row: let the select grow while buttons keep natural size */
   .amazon-echo-device-ha-entities-config #ha-server-row > .input-append {
     display: flex;
     align-items: stretch;
-    gap: 6px; /* space between select and buttons */
+    gap: 6px;
   }
   .amazon-echo-device-ha-entities-config #ha-server-row > .input-append > .red-ui-typedInput,
   .amazon-echo-device-ha-entities-config #ha-server-row > .input-append > input[type="text"],
   .amazon-echo-device-ha-entities-config #ha-server-row > .input-append > select {
-    flex: 1 1 auto;   /* grow/shrink with dialog width */
-    min-width: 0;     /* allow shrinking without overflow */
+    flex: 1 1 auto;
+    min-width: 0;
   }
   .amazon-echo-device-ha-entities-config #ha-server-row > .input-append > .editor-button,
   .amazon-echo-device-ha-entities-config #ha-server-row > .input-append > .red-ui-button,
   .amazon-echo-device-ha-entities-config #ha-server-row > .input-append > a {
-    flex: 0 0 auto;   /* buttons keep natural size */
+    flex: 0 0 auto;
   }
 
-  /* align the yellow count/comment rows to the right column edges */
+  /* Tips (yellow count blocks & entity hint) align to column 2, under the field */
   .amazon-echo-device-ha-entities-config .form-row > .form-tips {
-    display: block;
-    margin-left: calc(var(--aehe-label-w) + var(--aehe-gap));
-    width: calc(100% - (var(--aehe-label-w) + var(--aehe-gap)));
-    box-sizing: border-box;
+    grid-column: 2;
   }
-
-  /* also align any standalone tips (like the entity hint) */
   .amazon-echo-device-ha-entities-config > .form-tips {
-    display: block;
     margin-left: calc(var(--aehe-label-w) + var(--aehe-gap));
-    width: calc(100% - (var(--aehe-label-w) + var(--aehe-gap)));
-    box-sizing: border-box;
+    width: auto;  /* it will naturally fill remaining width */
   }
 </style>

@@ -1,6 +1,6 @@
 <!-- nodes/amazon-echo-device.html -->
 <script type="text/html" data-template-name="amazon-echo-device-ha-entities">
-  <div class="amazon-echo-device-ha-entities-config">
+  <div class="amazon-echo-device-ha-entities-config"><!-- wrapper for scoped layout only -->
     <div class="form-row">
       <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
       <input type="text" id="node-input-name" placeholder="Amazon Echo Device (HA)">
@@ -184,34 +184,6 @@
       }
       resetAll();
 
-      // --------- DEFAULT SERVER (safe: observes until the select exists) ---------
-      (function ensureDefaultServer() {
-        function trySelectFirst() {
-          if ($server.val()) return true; // already set (editing existing)
-          const sel = document.querySelector("#ha-server-row .input-append select, #ha-server-row select");
-          if (!sel || !sel.options || !sel.options.length) return false;
-          // prefer first non-empty value
-          let val = "";
-          for (let i = 0; i < sel.options.length; i++) {
-            if (sel.options[i].value) { val = sel.options[i].value; break; }
-          }
-          if (!val) val = sel.options[0].value || "";
-          if (!val) return false;
-          sel.value = val;
-          sel.dispatchEvent(new Event("change", { bubbles: true }));
-          $server.val(val);
-          return true;
-        }
-        if (trySelectFirst()) return;           // worked immediately
-        const target = document.getElementById("ha-server-row");
-        if (!target) return;
-        const mo = new MutationObserver(function() {
-          if (trySelectFirst()) mo.disconnect();
-        });
-        mo.observe(target, { childList: true, subtree: true });
-      })();
-      // ---------------------------------------------------------------------------
-
       function loadFilters(serverId) {
         if (!serverId) { resetAll(); return; }
         $.getJSON("amazon-echo-ha-entities/filters", { server: serverId })
@@ -313,14 +285,43 @@
           });
       }
 
-      // React to manual server changes
+      // -------- Default first server (safe polling, no DOM changes) --------
+      (function pickFirstServerIfEmpty() {
+        let tries = 0;
+        const maxTries = 80;  // ~2s total
+        const t = setInterval(function () {
+          try {
+            if ($server.val()) { clearInterval(t); return; } // already set
+            const sel = document.querySelector("#ha-server-row .input-append select, #ha-server-row select");
+            if (sel && sel.options && sel.options.length) {
+              // prefer first non-empty value
+              let val = "";
+              for (let i=0; i<sel.options.length; i++) {
+                if (sel.options[i].value) { val = sel.options[i].value; break; }
+              }
+              if (!val) val = sel.options[0].value || "";
+              if (val) {
+                sel.value = val;
+                sel.dispatchEvent(new Event("change", { bubbles: true }));
+                $server.val(val);
+                clearInterval(t);
+                return;
+              }
+            }
+          } catch(e) { /* ignore */ }
+          if (++tries >= maxTries) clearInterval(t);
+        }, 25);
+      })();
+      // --------------------------------------------------------------------
+
+      // Keep hidden input in sync if user changes the rendered select
       $("#ha-server-row").on("change", "select", function () {
-        const val = this.value || "";
-        if (val) $server.val(val);
-        loadFilters(val);
+        const v = this.value || "";
+        if (v) $server.val(v);
+        loadFilters(v);
       });
 
-      // Initial populate
+      // Initial populate (edit existing node)
       const initialServer = $server.val();
       if (initialServer) {
         loadFilters(initialServer);
@@ -335,14 +336,14 @@
 <!-- LAYOUT-ONLY (scoped) -->
 <style>
   :root {
-    --aehe-label-w: 180px;
+    --aehe-label-w: 180px; /* widen if labels truncate */
     --aehe-gap: 10px;
   }
 
-  /* keep “Component type” on one line */
+  /* prevent wrapping of “Component type” label text */
   .amazon-echo-device-ha-entities-config label.nowrap { white-space: nowrap; }
 
-  /* Two-column grid per row: fixed label + flexible field */
+  /* two-column grid: fixed label + flexible field, aligns left & right edges */
   .amazon-echo-device-ha-entities-config .form-row {
     display: grid;
     grid-template-columns: var(--aehe-label-w) 1fr;
@@ -360,22 +361,26 @@
     box-sizing: border-box;
   }
 
-  /* Server row: stretch first child (select/typedInput), keep buttons on right */
+  /* server row: dropdown stretches, buttons sit flush right (no DOM changes) */
   .amazon-echo-device-ha-entities-config #ha-server-row .input-append {
     display: flex;
     align-items: stretch;
     width: 100%;
     gap: 6px;
   }
-  .amazon-echo-device-ha-entities-config #ha-server-row .input-append > :first-child {
-    flex: 1 1 auto;      /* dropdown grows */
+  /* stretchy thing can be a select, typedInput, or text input */
+  .amazon-echo-device-ha-entities-config #ha-server-row .input-append > select,
+  .amazon-echo-device-ha-entities-config #ha-server-row .input-append > .red-ui-typedInput,
+  .amazon-echo-device-ha-entities-config #ha-server-row .input-append > input[type="text"] {
+    flex: 1 1 auto;
     min-width: 0;
   }
-  .amazon-echo-device-ha-entities-config #ha-server-row .input-append > :not(:first-child) {
-    flex: 0 0 auto;      /* buttons keep natural size and sit flush right */
+  /* push the first non-stretch child to the far right (typically the edit button or group) */
+  .amazon-echo-device-ha-entities-config #ha-server-row .input-append > :not(select):not(.red-ui-typedInput):not(input[type="text"]):first-of-type {
+    margin-left: auto;
   }
 
-  /* Tips (yellow blocks) align with column 2 */
+  /* yellow tips align under the right column */
   .amazon-echo-device-ha-entities-config .form-row > .form-tips { grid-column: 2; }
   .amazon-echo-device-ha-entities-config > .form-tips {
     margin-left: calc(var(--aehe-label-w) + var(--aehe-gap));

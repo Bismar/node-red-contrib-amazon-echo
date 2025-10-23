@@ -185,47 +185,29 @@
       }
       resetAll();
 
-      // ---- Helpers to wait for Node-RED to render the config-node widget ----
-      function whenServerWidgetReady(cb) {
-        let tries = 0;
-        const timer = setInterval(function () {
-          const $append = $("#ha-server-row .input-append");
-          const $sel = $append.find("select");
-          if ($append.length && $sel.length) {
-            clearInterval(timer);
-            cb($append, $sel);
-          } else if (++tries > 60) { // ~1.5s fallback
-            clearInterval(timer);
+      // Pick first available server as default (without touching DOM structure)
+      function pickDefaultServerOnce() {
+        try {
+          if ($server.val()) return; // already set (editing)
+          const $sel = $("#ha-server-row .input-append select");
+          if (!$sel.length) return;   // not rendered yet
+          const opts = $sel[0].options || [];
+          if (!opts.length) return;
+          // Prefer first non-empty value
+          let firstVal = "";
+          for (let i=0; i<opts.length; i++) {
+            if (opts[i].value) { firstVal = opts[i].value; break; }
           }
-        }, 25);
-      }
-
-      function prepareServerRow($append, $sel) {
-        // add hook classes once
-        $append.addClass("aehe-server-append");
-        if ($append.find(".aehe-server-buttons").length === 0) {
-          // move all immediate buttons/links into a right-aligned group
-          const $buttons = $append.children('a,button,.editor-button,.red-ui-button').not('select');
-          if ($buttons.length) {
-            const $group = $('<span class="aehe-server-buttons"></span>');
-            $buttons.appendTo($group);
-            $append.append($group);
-          }
-        }
-        // default server if none set
-        if (!$server.val() && $sel[0] && $sel[0].options && $sel[0].options.length) {
-          // prefer first non-empty value, otherwise first item
-          const nonEmpty = Array.from($sel[0].options).find(o => o.value);
-          const firstVal = (nonEmpty ? nonEmpty.value : $sel[0].options[0].value) || "";
+          if (!firstVal) firstVal = opts[0].value || "";
           if (firstVal) {
             $sel.val(firstVal).trigger("change");
-            $server.val(firstVal);
+            $server.val(firstVal); // keep the hidden value in sync
           }
-        }
+        } catch(e) { /* swallow */ }
       }
-      // Wait until Node-RED converts the <input> into the select+buttons widget
-      whenServerWidgetReady(prepareServerRow);
-      // ----------------------------------------------------------------------
+      // Try immediately and once more after a short delay to catch async render
+      setTimeout(pickDefaultServerOnce, 0);
+      setTimeout(pickDefaultServerOnce, 100);
 
       // Wire events
       $server.on("change", function(){ loadFilters($server.val()); });
@@ -264,7 +246,7 @@
 <!-- LAYOUT-ONLY (scoped) -->
 <style>
   :root {
-    --aehe-label-w: 180px; /* adjust if labels truncate */
+    --aehe-label-w: 180px; /* tweak if labels truncate */
     --aehe-gap: 10px;
   }
 
@@ -289,32 +271,29 @@
     box-sizing: border-box;
   }
 
-  /* Server row: select stretches; buttons pinned right */
-  .amazon-echo-device-ha-entities-config #ha-server-row .aehe-server-append {
+  /* Server row: make input-append a flex row so the select stretches.
+     Buttons remain siblings, but we push the FIRST button to the right. */
+  .amazon-echo-device-ha-entities-config #ha-server-row .input-append {
     display: flex;
     align-items: stretch;
     width: 100%;
     gap: 6px;
   }
-  .amazon-echo-device-ha-entities-config #ha-server-row .aehe-server-append > select,
-  .amazon-echo-device-ha-entities-config #ha-server-row .aehe-server-append > .red-ui-typedInput,
-  .amazon-echo-device-ha-entities-config #ha-server-row .aehe-server-append > input[type="text"] {
-    flex: 1 1 auto;   /* fills remaining space */
+  .amazon-echo-device-ha-entities-config #ha-server-row .input-append > select,
+  .amazon-echo-device-ha-entities-config #ha-server-row .input-append > .red-ui-typedInput,
+  .amazon-echo-device-ha-entities-config #ha-server-row .input-append > input[type="text"] {
+    flex: 1 1 auto;      /* fills remaining space */
     min-width: 0;
   }
-  .amazon-echo-device-ha-entities-config #ha-server-row .aehe-server-buttons {
-    margin-left: auto; /* push buttons to the far right */
-    display: inline-flex;
-    gap: 6px;
-  }
-  .amazon-echo-device-ha-entities-config #ha-server-row .aehe-server-buttons > * {
-    flex: 0 0 auto;
+  /* Push the first control AFTER the select (a button/link) to the right edge */
+  .amazon-echo-device-ha-entities-config #ha-server-row .input-append > select + * {
+    margin-left: auto;
   }
 
-  /* Tips (yellow count blocks) align under the field in column 2 */
+  /* Tips (yellow count blocks) align under the field (right column) */
   .amazon-echo-device-ha-entities-config .form-row > .form-tips { grid-column: 2; }
 
-  /* Standalone tips also line up with column 2 */
+  /* Standalone tips line up with column 2 as well */
   .amazon-echo-device-ha-entities-config > .form-tips {
     margin-left: calc(var(--aehe-label-w) + var(--aehe-gap));
   }

@@ -184,6 +184,34 @@
       }
       resetAll();
 
+      // --------- DEFAULT SERVER (safe: observes until the select exists) ---------
+      (function ensureDefaultServer() {
+        function trySelectFirst() {
+          if ($server.val()) return true; // already set (editing existing)
+          const sel = document.querySelector("#ha-server-row .input-append select, #ha-server-row select");
+          if (!sel || !sel.options || !sel.options.length) return false;
+          // prefer first non-empty value
+          let val = "";
+          for (let i = 0; i < sel.options.length; i++) {
+            if (sel.options[i].value) { val = sel.options[i].value; break; }
+          }
+          if (!val) val = sel.options[0].value || "";
+          if (!val) return false;
+          sel.value = val;
+          sel.dispatchEvent(new Event("change", { bubbles: true }));
+          $server.val(val);
+          return true;
+        }
+        if (trySelectFirst()) return;           // worked immediately
+        const target = document.getElementById("ha-server-row");
+        if (!target) return;
+        const mo = new MutationObserver(function() {
+          if (trySelectFirst()) mo.disconnect();
+        });
+        mo.observe(target, { childList: true, subtree: true });
+      })();
+      // ---------------------------------------------------------------------------
+
       function loadFilters(serverId) {
         if (!serverId) { resetAll(); return; }
         $.getJSON("amazon-echo-ha-entities/filters", { server: serverId })
@@ -285,24 +313,20 @@
           });
       }
 
-      // ---------------- Default server (optional, safe) ----------------
-      // If you want the first server selected automatically when empty, keep this.
-      // It only reads the rendered select; it does not alter DOM structure.
-      setTimeout(function () {
-        try {
-          if ($("#node-input-haServer").val()) return;
-          var $sel = $("#ha-server-row .input-append select");
-          if (!$sel.length || !$sel[0].options.length) return;
-          // prefer first non-empty option
-          var opts = Array.prototype.slice.call($sel[0].options);
-          var first = (opts.find(function(o){return o.value;}) || opts[0]).value || "";
-          if (first) {
-            $sel.val(first).trigger("change");
-            $("#node-input-haServer").val(first);
-          }
-        } catch(e) {}
-      }, 0);
-      // -----------------------------------------------------------------
+      // React to manual server changes
+      $("#ha-server-row").on("change", "select", function () {
+        const val = this.value || "";
+        if (val) $server.val(val);
+        loadFilters(val);
+      });
+
+      // Initial populate
+      const initialServer = $server.val();
+      if (initialServer) {
+        loadFilters(initialServer);
+      } else {
+        resetAll();
+      }
     }
   });
 })();
@@ -336,23 +360,19 @@
     box-sizing: border-box;
   }
 
-  /* Server row: let the select stretch; keep buttons to the right.
-     We DON'T move elements; we only control layout with flex. */
+  /* Server row: stretch first child (select/typedInput), keep buttons on right */
   .amazon-echo-device-ha-entities-config #ha-server-row .input-append {
     display: flex;
     align-items: stretch;
     width: 100%;
     gap: 6px;
   }
-  .amazon-echo-device-ha-entities-config #ha-server-row .input-append > select,
-  .amazon-echo-device-ha-entities-config #ha-server-row .input-append > .red-ui-typedInput,
-  .amazon-echo-device-ha-entities-config #ha-server-row .input-append > input[type="text"] {
-    flex: 1 1 auto;     /* fills remaining space */
+  .amazon-echo-device-ha-entities-config #ha-server-row .input-append > :first-child {
+    flex: 1 1 auto;      /* dropdown grows */
     min-width: 0;
   }
-  /* push first non-select control (the edit button) to the far right */
-  .amazon-echo-device-ha-entities-config #ha-server-row .input-append > select + * {
-    margin-left: auto;
+  .amazon-echo-device-ha-entities-config #ha-server-row .input-append > :not(:first-child) {
+    flex: 0 0 auto;      /* buttons keep natural size and sit flush right */
   }
 
   /* Tips (yellow blocks) align with column 2 */

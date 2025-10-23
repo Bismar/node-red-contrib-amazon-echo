@@ -1,6 +1,5 @@
 <!-- nodes/amazon-echo-device.html -->
 <script type="text/html" data-template-name="amazon-echo-device-ha-entities">
-  <!-- wrapper for scoped styling (layout-only) -->
   <div class="amazon-echo-device-ha-entities-config">
     <div class="form-row">
       <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
@@ -27,7 +26,7 @@
     </div>
 
     <div class="form-row">
-      <!-- prevent wrapping (text unchanged) -->
+      <!-- keep text; just prevent wrapping -->
       <label for="node-input-haDomain" class="nowrap"><i class="fa fa-cube"></i> Component type</label>
       <select id="node-input-haDomain" style="width:100%"></select>
       <div class="form-tips" id="ha-domain-count" style="margin-top:2px;"></div>
@@ -186,6 +185,7 @@
       }
       resetAll();
 
+      // Load filter values + total device count
       function loadFilters(serverId) {
         if (!serverId) { resetAll(); return; }
         $.getJSON("amazon-echo-ha-entities/filters", { server: serverId })
@@ -207,10 +207,12 @@
               $domain.append($("<option/>", { value: d.domain, text: d.domain + (d.count ? ` (${d.count})` : "") }));
             });
 
+            // Restore prior selections if present
             if ($("#node-input-haAreaId").val())  $area.val($("#node-input-haAreaId").val());
             if ($("#node-input-haLabelId").val()) $label.val($("#node-input-haLabelId").val());
             if ($("#node-input-haDomain").val())  $domain.val($("#node-input-haDomain").val());
 
+            // Trigger device load after filters rendered
             loadDevices(serverId, $area.val(), $label.val(), $domain.val(), $("#node-input-haDeviceId").val());
           })
           .fail(function (xhr) {
@@ -235,8 +237,10 @@
             });
             if (selectedDeviceId) $device.val(selectedDeviceId);
 
+            // Update device count summary
             setCounts((devices || []).length);
 
+            // Now load entities for the selected/first device
             const devId = $device.val();
             loadEntities(serverId, devId, $("#node-input-haEntityId").val());
           })
@@ -287,6 +291,22 @@
           });
       }
 
+      // ----- NEW: make first server default if none selected -----
+      function setDefaultServerIfEmpty() {
+        // Node-RED converts the config node input into an input-append with a select & buttons
+        const $sel = $("#ha-server-row .input-append select");
+        if (!$server.val() && $sel.length && $sel[0].options.length) {
+          const firstVal = $sel[0].options[0].value;
+          if (firstVal) {
+            $sel.val(firstVal).trigger("change");
+            $server.val(firstVal); // keep underlying value in sync
+          }
+        }
+      }
+      // Wait a tick so Node-RED finishes rendering the config-node widget
+      setTimeout(setDefaultServerIfEmpty, 0);
+      // ----------------------------------------------------------
+
       // Wire events
       $server.on("change", function(){ loadFilters($server.val()); });
       $area.on("change",   function(){
@@ -309,6 +329,7 @@
         loadEntityInfo($server.val(), $entity.val());
       });
 
+      // Initial populate (edit existing node)
       const initialServer = $server.val();
       if (initialServer) {
         loadFilters(initialServer);
@@ -323,14 +344,14 @@
 <!-- LAYOUT-ONLY (scoped) -->
 <style>
   :root {
-    --aehe-label-w: 180px;  /* adjust if your labels truncate */
+    --aehe-label-w: 180px;
     --aehe-gap: 10px;
   }
 
-  /* prevent wrapping in “Component type” */
+  /* Prevent wrap of “Component type” */
   .amazon-echo-device-ha-entities-config label.nowrap { white-space: nowrap; }
 
-  /* Two-column grid per row: fixed label + flexible field */
+  /* Two-column grid: fixed label + flexible field */
   .amazon-echo-device-ha-entities-config .form-row {
     display: grid;
     grid-template-columns: var(--aehe-label-w) 1fr;
@@ -338,47 +359,43 @@
     align-items: center;
   }
 
-  /* Put labels in column 1 */
-  .amazon-echo-device-ha-entities-config .form-row > label {
-    grid-column: 1;
-    box-sizing: border-box;
-  }
+  .amazon-echo-device-ha-entities-config .form-row > label { grid-column: 1; }
 
-  /* Put all inputs/selects/etc. in column 2 and stretch */
   .amazon-echo-device-ha-entities-config .form-row > input[type="text"],
   .amazon-echo-device-ha-entities-config .form-row > select,
   .amazon-echo-device-ha-entities-config .form-row > .red-ui-typedInput,
   .amazon-echo-device-ha-entities-config .form-row > .input-append {
     grid-column: 2;
-    width: 100% !important;   /* fill the right column */
+    width: 100% !important;
     max-width: 100%;
     box-sizing: border-box;
   }
 
-  /* Server row: let the select grow while buttons keep natural size */
+  /* Server row: buttons right-aligned, select stretches */
   .amazon-echo-device-ha-entities-config #ha-server-row > .input-append {
     display: flex;
     align-items: stretch;
+    width: 100%;
     gap: 6px;
   }
+  .amazon-echo-device-ha-entities-config #ha-server-row > .input-append > select,
   .amazon-echo-device-ha-entities-config #ha-server-row > .input-append > .red-ui-typedInput,
-  .amazon-echo-device-ha-entities-config #ha-server-row > .input-append > input[type="text"],
-  .amazon-echo-device-ha-entities-config #ha-server-row > .input-append > select {
-    flex: 1 1 auto;
+  .amazon-echo-device-ha-entities-config #ha-server-row > .input-append > input[type="text"] {
+    flex: 1 1 auto;   /* fills remaining space */
     min-width: 0;
   }
   .amazon-echo-device-ha-entities-config #ha-server-row > .input-append > .editor-button,
   .amazon-echo-device-ha-entities-config #ha-server-row > .input-append > .red-ui-button,
   .amazon-echo-device-ha-entities-config #ha-server-row > .input-append > a {
-    flex: 0 0 auto;
+    flex: 0 0 auto;   /* keep natural button width */
+    margin-left: 0;   /* let the gap control spacing */
   }
 
-  /* Tips (yellow count blocks & entity hint) align to column 2, under the field */
-  .amazon-echo-device-ha-entities-config .form-row > .form-tips {
-    grid-column: 2;
-  }
+  /* Tips (yellow count blocks) align under the field in column 2 */
+  .amazon-echo-device-ha-entities-config .form-row > .form-tips { grid-column: 2; }
+
+  /* Standalone tips also line up with column 2 */
   .amazon-echo-device-ha-entities-config > .form-tips {
     margin-left: calc(var(--aehe-label-w) + var(--aehe-gap));
-    width: auto;  /* it will naturally fill remaining width */
   }
 </style>

@@ -26,7 +26,6 @@
     </div>
 
     <div class="form-row">
-      <!-- prevent wrapping without changing text -->
       <label for="node-input-haDomain" class="nowrap"><i class="fa fa-cube"></i> Component type</label>
       <select id="node-input-haDomain" style="width:100%"></select>
       <div class="form-tips" id="ha-domain-count" style="margin-top:2px;"></div>
@@ -185,59 +184,125 @@
       }
       resetAll();
 
-      // Pick first available server as default (without touching DOM structure)
-      function pickDefaultServerOnce() {
+      function loadFilters(serverId) {
+        if (!serverId) { resetAll(); return; }
+        $.getJSON("amazon-echo-ha-entities/filters", { server: serverId })
+          .done(function (data) {
+            TOTAL_DEVICES = data.total_devices || 0;
+
+            resetSelect($area, "(All areas)");
+            (data.areas || []).forEach(a => {
+              $area.append($("<option/>", { value: a.area_id, text: a.name || a.area_id }));
+            });
+
+            resetSelect($label, "(All labels)");
+            (data.labels || []).forEach(l => {
+              $label.append($("<option/>", { value: l.label_id, text: l.name || l.label_id }));
+            });
+
+            resetSelect($domain, "(All component types)");
+            (data.domains || []).forEach(d => {
+              $domain.append($("<option/>", { value: d.domain, text: d.domain + (d.count ? ` (${d.count})` : "") }));
+            });
+
+            if ($("#node-input-haAreaId").val())  $area.val($("#node-input-haAreaId").val());
+            if ($("#node-input-haLabelId").val()) $label.val($("#node-input-haLabelId").val());
+            if ($("#node-input-haDomain").val())  $domain.val($("#node-input-haDomain").val());
+
+            loadDevices(serverId, $area.val(), $label.val(), $domain.val(), $("#node-input-haDeviceId").val());
+          })
+          .fail(function (xhr) {
+            resetAll();
+            RED.notify("Failed to load filters: " + (xhr.responseText || xhr.statusText), "error");
+          });
+      }
+
+      function loadDevices(serverId, areaId, labelId, domain, selectedDeviceId) {
+        if (!serverId) { resetAll(); return; }
+        resetSelect($device, "(Loading devices...)");
+        const query = { server: serverId };
+        if (areaId)  query.area  = areaId;
+        if (labelId) query.label = labelId;
+        if (domain)  query.domain = domain;
+
+        $.getJSON("amazon-echo-ha-entities/devices", query)
+          .done(function (devices) {
+            resetSelect($device, "(Select device)");
+            (devices || []).forEach(d => {
+              $device.append($("<option/>", { value: d.id, text: d.displayName || d.name || d.id }));
+            });
+            if (selectedDeviceId) $device.val(selectedDeviceId);
+
+            setCounts((devices || []).length);
+
+            const devId = $device.val();
+            loadEntities(serverId, devId, $("#node-input-haEntityId").val());
+          })
+          .fail(function (xhr) {
+            resetSelect($device, "(failed to load)");
+            setCounts(0);
+            RED.notify("Failed to load devices: " + (xhr.responseText || xhr.statusText), "error");
+          });
+      }
+
+      function loadEntities(serverId, deviceId, selectedEntityId) {
+        $entity.prop("disabled", true);
+        resetSelect($entity, "(Loading entities...)");
+        const query = { server: serverId };
+        if (deviceId) query.device = deviceId;
+
+        $.getJSON("amazon-echo-ha-entities/entities", query)
+          .done(function (entities) {
+            resetSelect($entity, "(Select entity)");
+            (entities || []).forEach(e => {
+              const label = e.displayName || e.name || e.entity_id;
+              $entity.append($("<option/>",{ value: e.entity_id, text: label }));
+            });
+            if (selectedEntityId) $entity.val(selectedEntityId);
+            $entity.prop("disabled", false);
+            setEntityHint();
+            if ($entity.val()) {
+              loadEntityInfo($server.val(), $entity.val());
+            } else {
+              showEntityInfo(null);
+            }
+          })
+          .fail(function (xhr) {
+            resetSelect($entity, "(failed to load)");
+            RED.notify("Failed to load entities: " + (xhr.responseText || xhr.statusText), "error");
+            setEntityHint();
+            showEntityInfo(null);
+          });
+      }
+
+      function loadEntityInfo(serverId, entityId) {
+        if (!serverId || !entityId) { showEntityInfo(null); return; }
+        $.getJSON("amazon-echo-ha-entities/entity_info", { server: serverId, entity: entityId })
+          .done(info => { showEntityInfo(info); })
+          .fail(xhr => {
+            RED.notify("Failed to load entity details: " + (xhr.responseText || xhr.statusText), "error");
+            showEntityInfo(null);
+          });
+      }
+
+      // ---------------- Default server (optional, safe) ----------------
+      // If you want the first server selected automatically when empty, keep this.
+      // It only reads the rendered select; it does not alter DOM structure.
+      setTimeout(function () {
         try {
-          if ($server.val()) return; // already set (editing)
-          const $sel = $("#ha-server-row .input-append select");
-          if (!$sel.length) return;   // not rendered yet
-          const opts = $sel[0].options || [];
-          if (!opts.length) return;
-          // Prefer first non-empty value
-          let firstVal = "";
-          for (let i=0; i<opts.length; i++) {
-            if (opts[i].value) { firstVal = opts[i].value; break; }
+          if ($("#node-input-haServer").val()) return;
+          var $sel = $("#ha-server-row .input-append select");
+          if (!$sel.length || !$sel[0].options.length) return;
+          // prefer first non-empty option
+          var opts = Array.prototype.slice.call($sel[0].options);
+          var first = (opts.find(function(o){return o.value;}) || opts[0]).value || "";
+          if (first) {
+            $sel.val(first).trigger("change");
+            $("#node-input-haServer").val(first);
           }
-          if (!firstVal) firstVal = opts[0].value || "";
-          if (firstVal) {
-            $sel.val(firstVal).trigger("change");
-            $server.val(firstVal); // keep the hidden value in sync
-          }
-        } catch(e) { /* swallow */ }
-      }
-      // Try immediately and once more after a short delay to catch async render
-      setTimeout(pickDefaultServerOnce, 0);
-      setTimeout(pickDefaultServerOnce, 100);
-
-      // Wire events
-      $server.on("change", function(){ loadFilters($server.val()); });
-      $area.on("change",   function(){
-        $("#node-input-haAreaId").val($area.val());
-        loadDevices($server.val(), $area.val(), $label.val(), $domain.val(), $("#node-input-haDeviceId").val());
-      });
-      $label.on("change",  function(){
-        $("#node-input-haLabelId").val($label.val());
-        loadDevices($server.val(), $area.val(), $label.val(), $domain.val(), $("#node-input-haDeviceId").val());
-      });
-      $domain.on("change", function(){
-        $("#node-input-haDomain").val($domain.val());
-        loadDevices($server.val(), $area.val(), $label.val(), $domain.val(), $("#node-input-haDeviceId").val());
-      });
-      $device.on("change", function(){
-        loadEntities($server.val(), $device.val(), $("#node-input-haEntityId").val());
-      });
-      $entity.on("change", function(){
-        setEntityHint();
-        loadEntityInfo($server.val(), $entity.val());
-      });
-
-      // Initial populate (edit existing node)
-      const initialServer = $server.val();
-      if (initialServer) {
-        loadFilters(initialServer);
-      } else {
-        resetAll();
-      }
+        } catch(e) {}
+      }, 0);
+      // -----------------------------------------------------------------
     }
   });
 })();
@@ -246,7 +311,7 @@
 <!-- LAYOUT-ONLY (scoped) -->
 <style>
   :root {
-    --aehe-label-w: 180px; /* tweak if labels truncate */
+    --aehe-label-w: 180px;
     --aehe-gap: 10px;
   }
 
@@ -271,8 +336,8 @@
     box-sizing: border-box;
   }
 
-  /* Server row: make input-append a flex row so the select stretches.
-     Buttons remain siblings, but we push the FIRST button to the right. */
+  /* Server row: let the select stretch; keep buttons to the right.
+     We DON'T move elements; we only control layout with flex. */
   .amazon-echo-device-ha-entities-config #ha-server-row .input-append {
     display: flex;
     align-items: stretch;
@@ -282,18 +347,16 @@
   .amazon-echo-device-ha-entities-config #ha-server-row .input-append > select,
   .amazon-echo-device-ha-entities-config #ha-server-row .input-append > .red-ui-typedInput,
   .amazon-echo-device-ha-entities-config #ha-server-row .input-append > input[type="text"] {
-    flex: 1 1 auto;      /* fills remaining space */
+    flex: 1 1 auto;     /* fills remaining space */
     min-width: 0;
   }
-  /* Push the first control AFTER the select (a button/link) to the right edge */
+  /* push first non-select control (the edit button) to the far right */
   .amazon-echo-device-ha-entities-config #ha-server-row .input-append > select + * {
     margin-left: auto;
   }
 
-  /* Tips (yellow count blocks) align under the field (right column) */
+  /* Tips (yellow blocks) align with column 2 */
   .amazon-echo-device-ha-entities-config .form-row > .form-tips { grid-column: 2; }
-
-  /* Standalone tips line up with column 2 as well */
   .amazon-echo-device-ha-entities-config > .form-tips {
     margin-left: calc(var(--aehe-label-w) + var(--aehe-gap));
   }

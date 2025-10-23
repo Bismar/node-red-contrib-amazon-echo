@@ -1,5 +1,6 @@
 <!-- nodes/amazon-echo-device.html -->
 <script type="text/html" data-template-name="amazon-echo-device-ha-entities">
+  <!-- ADDED: wrapper for scoped styling -->
   <div class="amazon-echo-device-ha-entities-config">
     <div class="form-row">
       <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
@@ -26,6 +27,7 @@
     </div>
 
     <div class="form-row">
+      <!-- ADDED: nowrap class to stop a line break without changing text -->
       <label for="node-input-haDomain" class="nowrap"><i class="fa fa-cube"></i> Component type</label>
       <select id="node-input-haDomain" style="width:100%"></select>
       <div class="form-tips" id="ha-domain-count" style="margin-top:2px;"></div>
@@ -184,12 +186,10 @@
       }
       resetAll();
 
-      // Load filter values + total device count
       function loadFilters(serverId) {
         if (!serverId) { resetAll(); return; }
         $.getJSON("amazon-echo-ha-entities/filters", { server: serverId })
           .done(function (data) {
-            // data: { total_devices, areas[], labels[], domains[] }
             TOTAL_DEVICES = data.total_devices || 0;
 
             resetSelect($area, "(All areas)");
@@ -207,12 +207,10 @@
               $domain.append($("<option/>", { value: d.domain, text: d.domain + (d.count ? ` (${d.count})` : "") }));
             });
 
-            // Restore prior selections if present
             if ($("#node-input-haAreaId").val())  $area.val($("#node-input-haAreaId").val());
             if ($("#node-input-haLabelId").val()) $label.val($("#node-input-haLabelId").val());
             if ($("#node-input-haDomain").val())  $domain.val($("#node-input-haDomain").val());
 
-            // Trigger device load after filters rendered
             loadDevices(serverId, $area.val(), $label.val(), $domain.val(), $("#node-input-haDeviceId").val());
           })
           .fail(function (xhr) {
@@ -237,10 +235,8 @@
             });
             if (selectedDeviceId) $device.val(selectedDeviceId);
 
-            // Update device count summary
             setCounts((devices || []).length);
 
-            // Now load entities for the selected/first device
             const devId = $device.val();
             loadEntities(serverId, devId, $("#node-input-haEntityId").val());
           })
@@ -313,7 +309,6 @@
         loadEntityInfo($server.val(), $entity.val());
       });
 
-      // Initial populate (edit existing node)
       const initialServer = $server.val();
       if (initialServer) {
         loadFilters(initialServer);
@@ -325,29 +320,70 @@
 })();
 </script>
 
-<!-- Layout-only, scoped to this node -->
+<!-- LAYOUT-ONLY (scoped) -->
 <style>
-  /* keep “Component type” on one line without changing its text */
+  :root {
+    /* tweak if your labels truncate; everything below derives from these */
+    --aehe-label-w: 180px;
+    --aehe-gap: 10px;
+  }
+
+  /* keep “Component type” on one line (text unchanged) */
   .amazon-echo-device-ha-entities-config .form-row label.nowrap {
     white-space: nowrap;
   }
 
-  /* normalize label width so left edges line up */
+  /* left column: fixed label width */
   .amazon-echo-device-ha-entities-config .form-row > label {
-    width: 180px;
+    width: var(--aehe-label-w);
     display: inline-block;
     vertical-align: top;
     box-sizing: border-box;
-    margin-right: 10px;
+    margin-right: var(--aehe-gap);
   }
 
-  /* normalize control widths so right edges line up (overrides inline width:100%) */
+  /* right column: inputs/selects take the remaining space and expand with dialog */
   .amazon-echo-device-ha-entities-config .form-row > input[type="text"],
   .amazon-echo-device-ha-entities-config .form-row > select,
   .amazon-echo-device-ha-entities-config .form-row > .red-ui-typedInput,
   .amazon-echo-device-ha-entities-config .form-row > .input-append {
-    width: calc(100% - 190px) !important; /* 180 label + 10 gap */
+    width: calc(100% - (var(--aehe-label-w) + var(--aehe-gap))) !important;
     max-width: 100%;
+    box-sizing: border-box;
+  }
+
+  /* SPECIAL CASE: the HA server row becomes an "input-append" with buttons.
+     Make it flex so the select/typedInput grows and the buttons stay snug. */
+  .amazon-echo-device-ha-entities-config #ha-server-row > .input-append {
+    display: flex;
+    align-items: stretch;
+    gap: 6px; /* space between select and buttons */
+  }
+  .amazon-echo-device-ha-entities-config #ha-server-row > .input-append > .red-ui-typedInput,
+  .amazon-echo-device-ha-entities-config #ha-server-row > .input-append > input[type="text"],
+  .amazon-echo-device-ha-entities-config #ha-server-row > .input-append > select {
+    flex: 1 1 auto;   /* grow/shrink with dialog width */
+    min-width: 0;     /* allow shrinking without overflow */
+  }
+  .amazon-echo-device-ha-entities-config #ha-server-row > .input-append > .editor-button,
+  .amazon-echo-device-ha-entities-config #ha-server-row > .input-append > .red-ui-button,
+  .amazon-echo-device-ha-entities-config #ha-server-row > .input-append > a {
+    flex: 0 0 auto;   /* buttons keep natural size */
+  }
+
+  /* align the yellow count/comment rows to the right column edges */
+  .amazon-echo-device-ha-entities-config .form-row > .form-tips {
+    display: block;
+    margin-left: calc(var(--aehe-label-w) + var(--aehe-gap));
+    width: calc(100% - (var(--aehe-label-w) + var(--aehe-gap)));
+    box-sizing: border-box;
+  }
+
+  /* also align any standalone tips (like the entity hint) */
+  .amazon-echo-device-ha-entities-config > .form-tips {
+    display: block;
+    margin-left: calc(var(--aehe-label-w) + var(--aehe-gap));
+    width: calc(100% - (var(--aehe-label-w) + var(--aehe-gap)));
     box-sizing: border-box;
   }
 </style>
